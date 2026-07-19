@@ -1,0 +1,510 @@
+// hooks/index.ts
+// TanStack Query hooks for the local CRM backend.
+// Products, clients, orders and payments are stored in local SQLite.
+
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from '@tanstack/react-query'
+
+import { crmApi, queryKeys } from '@/lib/api'
+import { useUIStore } from '@/store'
+import { tStatic } from '@/lib/i18n'
+
+import type {
+  Product,
+  Client,
+  ClientOrder,
+} from '@/types'
+
+const toast = () =>
+  useUIStore.getState().addToast
+
+// ============================================================
+// PRODUCTS
+// ============================================================
+
+export function useProducts() {
+  return useQuery({
+    queryKey: queryKeys.products.all,
+
+    queryFn: () =>
+      crmApi.get<Product[]>(
+        '/getProducts',
+      ),
+
+    placeholderData: keepPreviousData,
+
+    staleTime: 15_000,
+  })
+}
+
+export function useProduct(
+  id: string | number,
+) {
+  return useQuery({
+    queryKey:
+      queryKeys.products.detail(
+        String(id),
+      ),
+
+    queryFn: () =>
+      crmApi.get<Product>(
+        `/getProduct/${id}`,
+      ),
+
+    enabled:
+      id !== undefined &&
+      id !== null &&
+      id !== '',
+  })
+}
+
+export function useCreateProduct() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: Partial<Product>,
+    ) =>
+      crmApi.post<Product>(
+        '/createProduct',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          queryKeys.products.all,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.productAdded',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+export function useUpdateProduct(
+  id: string | number,
+) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: Partial<Product>,
+    ) =>
+      crmApi.put<Product>(
+        `/updateProduct/${id}`,
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          queryKeys.products.all,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.productUpdated',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+export function useDeleteProduct() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      id: string | number,
+    ) =>
+      crmApi.delete(
+        `/deleteProduct/${id}`,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          queryKeys.products.all,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.productDeleted',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+// ============================================================
+// PRODUCT PURCHASE / RESTOCK
+// ============================================================
+
+export interface PurchaseLineInput {
+  productId: string
+  amount: number
+}
+
+export function usePurchaseProducts() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      lines: PurchaseLineInput[],
+    ) =>
+      crmApi.post(
+        '/addProducts',
+        {
+          products: lines,
+        },
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          queryKeys.products.all,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.purchaseSaved',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+// ============================================================
+// CLIENTS
+// ============================================================
+
+export const clientsQueryKey =
+  ['clients'] as const
+
+export function useClients() {
+  return useQuery({
+    queryKey: clientsQueryKey,
+
+    queryFn: () =>
+      crmApi.get<Client[]>(
+        '/getClients',
+      ),
+
+    placeholderData:
+      keepPreviousData,
+
+    staleTime: 15_000,
+  })
+}
+
+export interface CreateClientInput {
+  name: string
+  phone: string
+  description?: string
+}
+
+export function useCreateClient() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: CreateClientInput,
+    ) =>
+      crmApi.post<Client>(
+        '/createClient',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.customerAdded',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+export interface UpdateClientInput {
+  id: string
+  name: string
+  phone: string
+}
+
+export function useUpdateClient() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: UpdateClientInput,
+    ) =>
+      crmApi.put<Client>(
+        '/updateClient',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.customerUpdated',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+export function useDeleteClient() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      id: string,
+    ) =>
+      crmApi.delete(
+        `/deleteClient/${id}`,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.customerDeleted',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+export type RePaymentType =
+  | 'cash'
+  | 'card'
+  | 'transfer'
+
+export interface RePaymentInput {
+  orderId: string
+  receivedAmount: number
+  description?: string
+  typeGet: RePaymentType
+}
+
+export function useRePayment() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: RePaymentInput,
+    ) =>
+      crmApi.post(
+        '/rePayment',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      qc.invalidateQueries({
+        queryKey:
+          ordersQueryKey,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.paymentSaved',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
+// ============================================================
+// ORDERS
+// ============================================================
+
+export const ordersQueryKey =
+  ['orders'] as const
+
+export function useOrders() {
+  return useQuery({
+    queryKey: ordersQueryKey,
+
+    queryFn: () =>
+      crmApi.get<ClientOrder[]>(
+        '/getOrders',
+      ),
+
+    placeholderData:
+      keepPreviousData,
+
+    staleTime: 15_000,
+  })
+}
+
+export type OrderStatusInput =
+  | 'debt'
+  | 'existent'
+
+export type OrderTypeGet =
+  | 'cash'
+  | 'card'
+  | 'transfer'
+
+export interface CreateOrderInput {
+  clientId: string
+
+  serviceFee: number
+
+  productsPrice: number
+
+  description?: string
+
+  products: {
+    productId: string
+    amount: number
+  }[]
+
+  status: OrderStatusInput
+
+  deadline?: string
+
+  receivedAmount: number
+
+  typeGet: OrderTypeGet
+}
+
+export function useCreateOrder() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: CreateOrderInput,
+    ) =>
+      crmApi.post<ClientOrder>(
+        '/createOrder',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          ordersQueryKey,
+      })
+
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      qc.invalidateQueries({
+        queryKey:
+          queryKeys.products.all,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.orderAdded',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
