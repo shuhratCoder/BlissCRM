@@ -1,0 +1,62 @@
+{
+  "name": "bliss-erp",
+  "version": "1.0.0",
+  "description": "BLISS ERP Desktop CRM",
+  "main": "electron/main.js",
+  "private": true,
+  "overrides": {
+    "@noble/hashes": "1.8.0"
+  },
+  "scripts": {
+    "frontend": "cd frontend && npm run dev",
+    "electron": "electron electron/main.js",
+    "desktop": "concurrently \"npm run frontend\" \"wait-on http://localhost:3009 && npm run electron\"",
+    "build:frontend": "cd frontend && npm run build",
+    "dist": "npm run build:frontend && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "uz.bliss.erp",
+    "productName": "BLISS ERP",
+    "asar": true,
+    "asarUnpack": [
+      "backend/node_modules/sqlite3/**/*",
+      "frontend/.next/standalone/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "backend/**/*",
+      "frontend/.next/**/*",
+      "frontend/public/**/*",
+      "frontend/package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BLISS ERP"
+    }
+  },
+  "dependencies": {
+    "electron-pos-printer": "^1.4.0"
+  }
+}
