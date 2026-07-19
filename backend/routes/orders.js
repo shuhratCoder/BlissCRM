@@ -47,7 +47,6 @@ router.post(
         receivedAmount = 0,
         typeGet,
       } = req.body;
-console.log("Received order data:", req.body);
       const serviceFeeNumber =
         Number(serviceFee) || 0;
 

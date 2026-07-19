@@ -56,6 +56,8 @@ export interface MebelOrderDetailsViewProps {
 export function MebelOrderDetailsView({ order }: MebelOrderDetailsViewProps) {
   const { t } = useT()
   const { data: products } = useProducts()
+  const [isPrinting, setIsPrinting] = React.useState(false)
+
   const productById = React.useMemo(() => {
     const m = new Map<string, Product>()
     for (const p of products ?? []) m.set(p.id, p)
@@ -87,8 +89,96 @@ export function MebelOrderDetailsView({ order }: MebelOrderDetailsViewProps) {
     return m
   }, [payments, total])
 
+  // CHOP ETISH FUNKSIYASI (BACKEND API BILAN BOG'LANISH)
+   const handlePrintReceipt = async () => {
+    try {
+      if (!order) {
+        alert("Buyurtma ma'lumotlari topilmadi!");
+        return;
+      }
+
+      let itemsHtml = "";
+      order.products.forEach((it) => {
+        const product = productById.get(it.productId);
+        const name = product?.name || `Mahsulot #${it.productId.slice(0, 8)}`;
+        const price = (Number(product?.price) || 0).toLocaleString('uz-UZ');
+        const itemTotal = (Number(product?.price) || 0) * (Number(it.amount) || 1);
+        
+        itemsHtml += `
+          <tr>
+            <td style="padding: 4px 0; font-size: 11px;">${name}<br><small>${it.amount || 1} x ${price}</small></td>
+            <td style="text-align: right; vertical-align: bottom; font-size: 11px;">${itemTotal.toLocaleString('uz-UZ')} UZS</td>
+          </tr>
+        `;
+      });
+
+      const receiptHtml = `
+        <html>
+        <head>
+          <style>
+            @page { margin: 0; size: 80mm auto; }
+            body { 
+              width: 260px; 
+              font-family: 'Courier New', Courier, monospace; 
+              font-size: 11px; 
+              margin: 0; padding: 4px; color: #000;
+            }
+            .center { text-align: center; }
+            .right { text-align: right; }
+            .line { border-top: 1px dashed #000; margin: 6px 0; }
+            table { width: 100%; border-collapse: collapse; }
+          </style>
+        </head>
+        <body>
+          <h3 class="center" style="margin: 0 0 4px 0;">BLISS MEBEL</h3>
+          <p class="center" style="margin: 0 0 8px 0;">Sifatli mebellar maskani</p>
+          <div><b>Sana:</b> ${new Date().toLocaleString('uz-UZ')}</div>
+          <div><b>Buyurtma ID:</b> #${order.id || 'Noma\'lum'}</div>
+          <div class="line"></div>
+          <table><tbody>${itemsHtml}</tbody></table>
+          <div class="line"></div>
+          <h3 class="right" style="margin: 4px 0 0 0;">JAMI: ${total.toLocaleString('uz-UZ')} UZS</h3>
+          <br><p class="center" style="font-size: 9px; margin: 0;">Xaridingiz uchun rahmat!</p>
+          <script>
+            window.print();
+            setTimeout(() => { window.close(); }, 500);
+          </script>
+        </body>
+        </html>
+      `;
+
+      const printWindow = window.open('', '_blank', 'width=300,height=600');
+      if (printWindow) {
+        printWindow.document.write(receiptHtml);
+        printWindow.document.close();
+      } else {
+        alert("Chop etish oynasini ochish bloklandi!");
+      }
+
+    } catch (error) {
+      console.error("Chop etishda xatolik:", error);
+      alert("Kutilmagan xatolik yuz berdi!");
+    }
+  };
+
   return (
     <div className="space-y-5 text-sm">
+      {/* CHOP ETISH TUGMASI (Oson ko'rinishi uchun eng tepaga joylashtirildi) */}
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={handlePrintReceipt}
+          disabled={isPrinting}
+          className={cn(
+            "w-full py-2.5 px-4 rounded-lg font-medium text-white transition flex items-center justify-center gap-2",
+            isPrinting 
+              ? "bg-gray-400 cursor-not-allowed" 
+              : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-sm"
+          )}
+        >
+          {isPrinting ? "Chop etilmoqda..." : "Chekni Chop Etish 🖨️"}
+        </button>
+      </div>
+
       <DetailRow
         label={t('orderDetails.createdAt')}
         value={order.createdAt ? formatDateTime(order.createdAt) : t('common.dash')}
@@ -240,20 +330,6 @@ function DetailRow({
   tone?: 'gray' | 'red' | 'emerald'
   bold?: boolean
 }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span
-        className={cn(
-          'text-sm',
-          tone === 'red' && 'text-red-600',
-          tone === 'emerald' && 'text-emerald-700',
-          tone === 'gray' && 'text-gray-900',
-          bold && 'font-semibold',
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  )
+  return (<label><span className={cn('text-sm', tone === 'red' && 'text-red-600', tone === 'emerald' && 'text-emerald-700', tone === 'gray' && 'text-gray-900', bold && 'font-semibold')}>{value}</span></label>)
 }
+

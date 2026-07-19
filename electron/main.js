@@ -495,9 +495,40 @@ async function startApplication() {
   }
 }
 
+// ====== PRINTER BUYRUQLARI (IPC) START ======
+// Frontenddan kelgan chekni hech qanday oynasiz chop etish (Silent Print)
+ipcMain.on('print-silent', (event, htmlContent, printerName) => {
+  let workerWindow = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true } });
+  
+  workerWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(htmlContent));
+  
+  workerWindow.webContents.on('did-finish-load', () => {
+    workerWindow.webContents.print({
+      silent: true,
+      printBackground: true,
+      deviceName: printerName || 'XP-80' 
+    }, (success, failureReason) => {
+      if (!success) console.log('Chop etishda xato:', failureReason);
+      workerWindow.close(); 
+    });
+  });
+});
+
+// Kompyuterda o'rnatilgan printerlar ro'yxatini frontendga uzatish
+ipcMain.handle('get-printers', async () => {
+  const dummyWindow = new BrowserWindow({ show: false });
+  const printers = await dummyWindow.webContents.getPrintersAsync();
+  dummyWindow.close();
+  return printers; 
+});
+// ====== PRINTER BUYRUQLARI (IPC) END ======
+
+
+// SIZDAGI MAVJUD ISHGA TUSHISH QATORLARI (O'zgartirmang, shundoq tursin)
 app.whenReady().then(
   startApplication
 );
+
 
 app.on(
   "window-all-closed",

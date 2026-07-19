@@ -1,608 +1,203 @@
-"use client";
+'use client'
 
-import { useEffect, useState } from "react";
-import {
-  Printer,
-  Save,
-  TestTube2,
-  Wifi,
-  Usb,
-  Monitor,
-} from "lucide-react";
+import React from 'react'
+import { cn } from '@/lib/utils'
 
-import { useAuthStore } from "@/store";
-
-type ConnectionType =
-  | "mock"
-  | "lan"
-  | "usb";
-
-interface PrinterSettings {
-  id?: string;
-  companyName: string;
-  companyPhone: string;
-  connectionType: ConnectionType;
-  printerName: string;
-  ip: string;
-  port: number;
-  paperWidth: number;
+interface ElectronPrinter {
+  name: string
+  isDefault: boolean
+  status: number
 }
-
-interface WindowsPrinter {
-  Name: string;
-  DriverName: string;
-  PortName: string;
-}
-
-const API_URL =
-  "http://127.0.0.1:3008/crm";
 
 export default function PrinterSettingsPage() {
-  const token = useAuthStore(
-    (state) => state.token,
-  );
+  const [connectionType, setConnectionType] = React.useState<'test' | 'lan' | 'usb'>('usb')
+  const [printers, setPrinters] = React.useState<ElectronPrinter[]>([])
+  const [selectedPrinter, setSelectedPrinter] = React.useState<string>('')
+  const [companyName, setCompanyName] = React.useState('BLISS MEBEL')
+  const [phone, setPhone] = React.useState('+998 90 123 45 67')
+  const [isLoadingPrinters, setIsLoadingPrinters] = React.useState(false)
 
-  const [settings, setSettings] =
-    useState<PrinterSettings>({
-      companyName: "BLISS MEBEL",
-      companyPhone: "",
-      connectionType: "mock",
-      printerName: "",
-      ip: "",
-      port: 9100,
-      paperWidth: 80,
-    });
+  // 1. Sahifa yuklanganda saqlangan sozlamalarni va Electron printerlarini yuklash
+  React.useEffect(() => {
+    // LocalStorage xotirasidan o'qish
+    const savedPrinter = localStorage.getItem('selected_printer')
+    if (savedPrinter) setSelectedPrinter(savedPrinter)
 
-  const [loading, setLoading] =
-    useState(true);
+    const savedCompany = localStorage.getItem('printer_company_name')
+    if (savedCompany) setCompanyName(savedCompany)
 
-  const [saving, setSaving] =
-    useState(false);
+    const savedPhone = localStorage.getItem('printer_phone')
+    if (savedPhone) setPhone(savedPhone)
 
-  const [testing, setTesting] =
-    useState(false);
+    const savedType = localStorage.getItem('printer_connection_type') as 'test' | 'lan' | 'usb'
+    if (savedType) setConnectionType(savedType)
 
-  const [message, setMessage] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const [printers, setPrinters] =
-    useState<WindowsPrinter[]>([]);
-
-  const [printersLoading, setPrintersLoading] =
-    useState(false);
-
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    loadSettings();
-  }, [token]);
-
-  async function loadSettings() {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await fetch(
-        `${API_URL}/printer/settings`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            data.error ||
-            "Printer sozlamalarini olishda xato",
-        );
+    // Electron orqali kompyuterdagi drayverlar ro'yxatini olish
+    const fetchSystemPrinters = async () => {
+      setIsLoadingPrinters(true)
+      try {
+        const globalWindow = window as any
+        // Electron muhitini tekshirish va IPC invoke qilish
+        if (globalWindow.electron && globalWindow.electron.ipcRenderer) {
+          const systemPrinters = await globalWindow.electron.ipcRenderer.invoke('get-printers')
+          setPrinters(systemPrinters || [])
+          
+          // Agar xotira bo'sh bo'lsa, standart (default) printerni tanlab qo'yish
+          if (!savedPrinter && systemPrinters && systemPrinters.length > 0) {
+            const defaultPrinter = systemPrinters.find((p: ElectronPrinter) => p.isDefault) || systemPrinters[0]
+            setSelectedPrinter(defaultPrinter.name)
+            localStorage.setItem('selected_printer', defaultPrinter.name)
+          }
+        } else if (globalWindow.require) {
+          const { ipcRenderer } = globalWindow.require('electron')
+          const systemPrinters = await ipcRenderer.invoke('get-printers')
+          setPrinters(systemPrinters || [])
+        } else {
+          console.warn("Electron IPC topilmadi, brauzer rejimida ishlamoqda.")
+          // Sinov uchun dummy drayverlar
+          setPrinters([
+            { name: 'XP-80', isDefault: true, status: 0 },
+            { name: 'Xprinter XP-80T', isDefault: false, status: 0 }
+          ])
+        }
+      } catch (err) {
+        console.error("Printerlarni olishda xatolik:", err)
+      } finally {
+        setIsLoadingPrinters(false)
       }
-
-      setSettings({
-        id: data.id,
-        companyName: data.companyName || "BLISS MEBEL",
-        companyPhone: data.companyPhone || "",
-        connectionType:
-          data.connectionType || "mock",
-        printerName:
-          data.printerName || "",
-        ip: data.ip || "",
-        port: Number(data.port) || 9100,
-        paperWidth:
-          Number(data.paperWidth) || 80,
-      });
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Xatolik yuz berdi",
-      );
-    } finally {
-      setLoading(false);
     }
+
+    fetchSystemPrinters()
+  }, [])
+
+  // 2. Printer o'zgarganda xotiraga saqlash funksiyasi
+  const handlePrinterChange = (name: string) => {
+    setSelectedPrinter(name)
+    localStorage.setItem('selected_printer', name)
   }
 
-  async function loadWindowsPrinters() {
-    try {
-      setPrintersLoading(true);
-      setError("");
-
-      const response = await fetch(
-        `${API_URL}/printer/windows-printers`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            data.error ||
-            "Printerlarni olishda xato",
-        );
-      }
-
-      setPrinters(data.printers || []);
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Printerlarni olishda xato",
-      );
-    } finally {
-      setPrintersLoading(false);
-    }
+  // Ulanish turi o'zgarganda saqlash
+  const handleTypeChange = (type: 'test' | 'lan' | 'usb') => {
+    setConnectionType(type)
+    localStorage.setItem('printer_connection_type', type)
   }
 
-  async function saveSettings() {
-    try {
-      setSaving(true);
-      setError("");
-      setMessage("");
-
-      const response = await fetch(
-        `${API_URL}/printer/settings`,
-        {
-          method: "PUT",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${token}`,
-          },
-
-          body: JSON.stringify(settings),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            data.error ||
-            "Saqlashda xato",
-        );
-      }
-
-      if (data.settings) {
-        setSettings({
-          id: data.settings.id,
-
-          companyName: data.settings.companyName || "BLISS MEBEL",
-          companyPhone: data.settings.companyPhone || "",
-
-          connectionType:
-            data.settings.connectionType,
-
-          printerName:
-            data.settings.printerName || "",
-
-          ip:
-            data.settings.ip || "",
-
-          port:
-            Number(data.settings.port) ||
-            9100,
-
-          paperWidth:
-            Number(
-              data.settings.paperWidth,
-            ) || 80,
-        });
-      }
-
-      setMessage(
-        "Printer sozlamalari saqlandi",
-      );
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Saqlashda xato",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function testPrinter() {
-    try {
-      setTesting(true);
-      setError("");
-      setMessage("");
-
-      const response = await fetch(
-        `${API_URL}/printer/test`,
-        {
-          method: "POST",
-
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            data.error ||
-            "Test chop etishda xato",
-        );
-      }
-
-      setMessage(
-        data.message ||
-          "Test chek printerga yuborildi",
-      );
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Printer xatosi",
-      );
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[500px] items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-gray-200 border-t-blue-600" />
-
-          <p className="mt-4 text-sm text-gray-500">
-            Printer sozlamalari yuklanmoqda...
-          </p>
-        </div>
-      </div>
-    );
+  // Matnli ma'lumotlar o'zgarganda saqlash funksiyasi
+  const handleSaveChanges = () => {
+    localStorage.setItem('printer_company_name', companyName)
+    localStorage.setItem('printer_phone', phone)
+    alert("Sozlamalar muvaffaqiyatli saqlandi! 💾")
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <div>
-        <h1 className="flex items-center gap-3 text-2xl font-bold text-gray-900">
-          <Printer className="h-7 w-7" />
-
-          Printer sozlamalari
-        </h1>
-
-        <p className="mt-2 text-sm text-gray-500">
-          Xprinter XP-80T printerini sozlash
-        </p>
+    <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="border-b pb-4">
+        <h1 className="text-2xl font-bold text-gray-900">🖨️ Printer sozlamalari</h1>
+        <p className="text-sm text-gray-500 mt-1">Xprinter XP-80T printerini va chek shablonini sozlash</p>
       </div>
 
-      {message && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          {message}
-        </div>
-      )}
+      {/* ULANISH TURI SEKTORI */}
+      <div className="bg-white border rounded-xl p-5 space-y-4 shadow-sm">
+        <h3 className="font-medium text-gray-900">Ulanish turi</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            onClick={() => handleTypeChange('test')}
+            className={cn(
+              "p-4 border rounded-xl text-left space-y-1 transition",
+              connectionType === 'test' ? "border-blue-600 bg-blue-50/50" : "hover:bg-gray-50"
+            )}
+          >
+            <div className="text-lg">🖥️</div>
+            <div className="font-semibold text-sm">Test rejimi</div>
+            <div className="text-xs text-gray-400">Printer ulanmagan</div>
+          </button>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+          <button
+            onClick={() => handleTypeChange('lan')}
+            className={cn(
+              "p-4 border rounded-xl text-left space-y-1 transition",
+              connectionType === 'lan' ? "border-blue-600 bg-blue-50/50" : "hover:bg-gray-50"
+            )}
+          >
+            <div className="text-lg">📶</div>
+            <div className="font-semibold text-sm">LAN</div>
+            <div className="text-xs text-gray-400">IP-manzil orqali ulanish</div>
+          </button>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">
-          Ulanish turi
-        </h2>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <ConnectionButton
-            active={
-              settings.connectionType ===
-              "mock"
-            }
-            icon={Monitor}
-            title="Test rejimi"
-            description="Printer ulanmagan"
-            onClick={() =>
-              setSettings((state) => ({
-                ...state,
-                connectionType: "mock",
-              }))
-            }
-          />
-
-          <ConnectionButton
-            active={
-              settings.connectionType ===
-              "lan"
-            }
-            icon={Wifi}
-            title="LAN"
-            description="IP orqali ulanish"
-            onClick={() =>
-              setSettings((state) => ({
-                ...state,
-                connectionType: "lan",
-              }))
-            }
-          />
-
-          <ConnectionButton
-            active={
-              settings.connectionType ===
-              "usb"
-            }
-            icon={Usb}
-            title="USB"
-            description="Windows printer"
-            onClick={() => {
-              setSettings((state) => ({
-                ...state,
-                connectionType: "usb",
-              }));
-
-              loadWindowsPrinters();
-            }}
-          />
+          <button
+            onClick={() => handleTypeChange('usb')}
+            className={cn(
+              "p-4 border rounded-xl text-left space-y-1 transition",
+              connectionType === 'usb' ? "border-blue-600 bg-blue-50/50" : "hover:bg-gray-50"
+            )}
+          >
+            <div className="text-lg">🔌</div>
+            <div className="font-semibold text-sm">USB</div>
+            <div className="text-xs text-gray-400">Windows drayveri orqali</div>
+          </button>
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">
-          Printer ma&apos;lumotlari
-        </h2>
-
-        <div className="mt-5 space-y-5">
-          <div className="grid gap-5 md:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Korxona nomi
-              </label>
-              <input
-                type="text"
-                value={settings.companyName}
-                placeholder="BLISS MEBEL"
-                onChange={(event) =>
-                  setSettings((state) => ({
-                    ...state,
-                    companyName: event.target.value,
-                  }))
-                }
-                className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Aloqa telefoni
-              </label>
-              <input
-                type="text"
-                value={settings.companyPhone}
-                placeholder="+998 90 123 45 67"
-                onChange={(event) =>
-                  setSettings((state) => ({
-                    ...state,
-                    companyPhone: event.target.value,
-                  }))
-                }
-                className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-              />
-            </div>
+      {/* PRINTER VA CHEK MA'LUMOTLARI */}
+      <div className="bg-white border rounded-xl p-5 space-y-5 shadow-sm">
+        <h3 className="font-medium text-gray-900">Printer va chek ma'lumotlari</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-500 uppercase">Korxona nomi</label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+            />
           </div>
 
-          {settings.connectionType ===
-            "lan" && (
-            <>
-              <div>
-                <label className="mb-2 block text-sm font-medium">
-                  Printer IP manzili
-                </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-500 uppercase">Aloqa telefoni</label>
+            <input
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+            />
+          </div>
+        </div>
 
-                <input
-                  type="text"
-                  value={settings.ip}
-                  placeholder="192.168.1.100"
-                  onChange={(event) =>
-                    setSettings((state) => ({
-                      ...state,
-                      ip: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium">
-                  TCP port
-                </label>
-
-                <input
-                  type="number"
-                  value={settings.port}
-                  onChange={(event) =>
-                    setSettings((state) => ({
-                      ...state,
-
-                      port:
-                        Number(
-                          event.target.value,
-                        ) || 9100,
-                    }))
-                  }
-                  className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-                />
-              </div>
-            </>
-          )}
-
-          {settings.connectionType ===
-            "usb" && (
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Windows printer nomi
-              </label>
-
-              <select
-                value={settings.printerName}
-                onChange={(event) =>
-                  setSettings((state) => ({
-                    ...state,
-                    printerName: event.target.value,
-                  }))
-                }
-                className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-              >
-                <option value="">
-                  {printersLoading
-                    ? "Printerlar qidirilmoqda..."
-                    : "Printerni tanlang"}
+        {/* WINDOWS PRINTER DRAYVERLARINI DINAMIK SELECT QILISH */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-500 uppercase">Windows printer nomi</label>
+          <select
+            value={selectedPrinter}
+            onChange={(e) => handlePrinterChange(e.target.value)}
+            disabled={isLoadingPrinters}
+            className="w-full border bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600 disabled:bg-gray-100"
+          >
+            {isLoadingPrinters ? (
+              <option>Printerlar yuklanmoqda...</option>
+            ) : printers.length === 0 ? (
+              <option value="">Printerlar topilmadi (XP-80 standart o'rnatiladi)</option>
+            ) : (
+              printers.map((p, idx) => (
+                <option key={idx} value={p.name}>
+                  {p.name} {p.isDefault ? '(Standart)' : ''}
                 </option>
-
-                {printers.map((printer) => (
-                  <option
-                    key={`${printer.Name}-${printer.PortName}`}
-                    value={printer.Name}
-                  >
-                    {printer.Name} — {printer.PortName}
-                  </option>
-                ))}
-              </select>
-
-              <p className="mt-2 text-xs text-gray-500">
-                Windows&apos;da o&apos;rnatilgan printerlar avtomatik ko&apos;rsatiladi.
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Qog&apos;oz kengligi
-            </label>
-
-            <select
-              value={settings.paperWidth}
-              onChange={(event) =>
-                setSettings((state) => ({
-                  ...state,
-
-                  paperWidth: Number(
-                    event.target.value,
-                  ),
-                }))
-              }
-              className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500"
-            >
-              <option value={80}>
-                80 mm
-              </option>
-            </select>
-          </div>
+              ))
+            )}
+          </select>
+          <p className="text-[11px] text-gray-400">Windows tizimida "Printers & Scanners" bo'limida o'rnatilgan drayverlar avtomatik aniqlanadi.</p>
         </div>
-      </div>
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={saveSettings}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50"
-        >
-          <Save className="h-5 w-5" />
-
-          {saving
-            ? "Saqlanmoqda..."
-            : "Saqlash"}
-        </button>
-
-        <button
-          type="button"
-          disabled={testing}
-          onClick={testPrinter}
-          className="flex items-center gap-2 rounded-xl border px-5 py-3 font-medium disabled:opacity-50"
-        >
-          <TestTube2 className="h-5 w-5" />
-
-          {testing
-            ? "Tekshirilmoqda..."
-            : "Test chop etish"}
-        </button>
+        {/* SAQLASH TUGMASI */}
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={handleSaveChanges}
+            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium text-sm rounded-lg shadow-sm transition"
+          >
+            O'zgarishlarni Saqlash 💾
+          </button>
+        </div>
       </div>
     </div>
-  );
-}
-
-function ConnectionButton({
-  active,
-  icon: Icon,
-  title,
-  description,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ElementType;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        "rounded-2xl border p-5 text-left transition",
-
-        active
-          ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600"
-          : "hover:border-gray-400",
-      ].join(" ")}
-    >
-      <Icon className="h-7 w-7" />
-
-      <div className="mt-4 font-semibold">
-        {title}
-      </div>
-
-      <div className="mt-1 text-sm text-gray-500">
-        {description}
-      </div>
-    </button>
-  );
+  )
 }

@@ -1,246 +1,104 @@
-const router = require("express").Router();
+const express = require('express');
+const router = express.Router();
+const ptp = require("pdf-to-printer");
+const PDFDocument = require("pdfkit"); // Toza Node.js PDF generatori (Brauzersiz)
+const fs = require("fs");
+const path = require("path");
 
-const PrinterSetting = require(
-  "../models/printerSetting"
-);
+const PRINTER_NAME = "Xprinter XP-80T"; 
 
-const {
-  printReceipt,
-} = require(
-  "../services/printerService"
-);
+// O'zbekcha maxsus harflarni printer to'g'ri o'qishi uchun standartlashtirish
+function fixUzbekChars(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/[‘’ʻʼ`']/g, "'")
+    .replace(/ш/g, 'sh').replace(/Ш/g, 'Sh')
+    .replace(/ч/g, 'ch').replace(/Ч/g, 'Ch');
+}
 
-const authMiddleware = require(
-  "../middlewares/authorization"
-);
+router.post('/print-receipt', async (req, res) => {
+  try {
+    const { orderId, items, totalAmount, customerName, date } = req.body;
 
-const asyncHandler = require(
-  "../middlewares/asyncHandler"
-);
-
-
-// GET SETTINGS
-router.get(
-  "/printer/settings",
-  authMiddleware,
-  asyncHandler(async (req, res) => {
-    let settings =
-      await PrinterSetting.findOne();
-
-    if (!settings) {
-      settings =
-        await PrinterSetting.create({
-          connectionType: "mock",
-          port: 9100,
-          paperWidth: 80,
-        });
+    if (!orderId || !items || !totalAmount) {
+      return res.status(400).json({ success: false, message: "Ma'lumotlar to'liq emas!" });
     }
 
-    res.status(200).json(settings);
-  })
-);
-
-
-// SAVE SETTINGS
-router.put(
-  "/printer/settings",
-  authMiddleware,
-  asyncHandler(async (req, res) => {
-    const {
-  companyName,
-  companyPhone,
-  connectionType,
-  printerName,
-  ip,
-  port,
-  paperWidth,
-} = req.body;
-    if (
-      !["mock", "lan", "usb"].includes(
-        connectionType
-      )
-    ) {
-      return res.status(400).json({
-        message:
-          "Printer ulanish turi noto'g'ri",
-      });
-    }
-
-    if (
-      connectionType === "lan" &&
-      !ip
-    ) {
-      return res.status(400).json({
-        message:
-          "LAN printer uchun IP majburiy",
-      });
-    }
-
-    if (
-      connectionType === "usb" &&
-      !printerName
-    ) {
-      return res.status(400).json({
-        message:
-          "USB printer nomi majburiy",
-      });
-    }
-
-    let settings =
-      await PrinterSetting.findOne();
-
-    const data = {
-  companyName:
-    companyName || "BLISS MEBEL",
-
-  companyPhone:
-    companyPhone || null,
-
-  connectionType,
-
-  printerName:
-    printerName || null,
-
-  ip: ip || null,
-
-  port: Number(port) || 9100,
-
-  paperWidth:
-    Number(paperWidth) || 80,
-};
-
-    if (!settings) {
-      settings =
-        await PrinterSetting.create(data);
-    } else {
-      await settings.update(data);
-    }
-
-    res.status(200).json({
-      success: true,
-      settings,
+    // 80mm printer uchun optimal o'lcham (Nuqtalarda: 1 mm = 2.83 point)
+    // 80mm = ~226 point kenglik. Balandlik mahsulot soniga qarab cho'ziladi.
+    const pageHeight = 250 + (items.length * 35);
+    const doc = new PDFDocument({
+      size: [226, pageHeight],
+      margins: { top: 10, bottom: 10, left: 10, right: 10 }
     });
-  })
-);
 
+    const tempFilePath = path.join(__dirname, `../temp_${Date.now()}.pdf`);
+    const stream = fs.createWriteStream(tempFilePath);
+    doc.pipe(stream);
 
-// TEST PRINT
-router.post(
-  "/printer/test",
-  authMiddleware,
-  asyncHandler(async (req, res) => {
-    const settings =
-      await PrinterSetting.findOne();
+    // Sarlavha
+    doc.font('Courier-Bold').fontSize(14).text("BLISS MEBEL", { align: 'center' });
+    doc.font('Courier').fontSize(8).text("Sifatli mebellar maskani", { align: 'center' });
+    doc.moveDown(1);
 
-    if (!settings) {
-      return res.status(404).json({
-        message:
-          "Printer sozlamalari topilmadi",
-      });
+    // Ma'lumotlar
+    const checkDate = date || new Date().toLocaleString('uz-UZ');
+    doc.fontSize(9).font('Courier')
+       .text(`Sana: ${checkDate}`)
+       .text(`Buyurtma ID: #${orderId}`);
+    
+    if (customerName) {
+      doc.text(`Mijoz: ${fixUzbekChars(customerName)}`);
     }
 
-    const result =
-      await printReceipt(
-        settings.toJSON(),
-        {
-          companyName: "BLISS ERP",
+    // Chiziq
+    doc.moveDown(0.5);
+    doc.text("-----------------------------------");
+    doc.moveDown(0.5);
 
-          orderId: "TEST-001",
+    // Mahsulotlar ro'yxati
+    items.forEach(item => {
+      const name = fixUzbekChars(item.name);
+      const price = item.price.toLocaleString('uz-UZ');
+      const itemTotal = (item.price * item.quantity).toLocaleString('uz-UZ');
 
-          clientName:
-            "TEST MIJOZ",
+      doc.font('Courier-Bold').text(name);
+      doc.font('Courier').text(`${item.quantity} x ${price}`, { continued: true });
+      doc.text(`${itemTotal} UZS`, { align: 'right' });
+      doc.moveDown(0.5);
+    });
 
-          clientPhone:
-            "+998 00 000 00 00",
+    // Chiziq
+    doc.text("-----------------------------------");
+    doc.moveDown(0.5);
 
-          products: [
-            {
-              name: "Test mahsulot",
-              amount: 1,
-            },
-          ],
+    // Umumiy Summa
+    const finalTotal = totalAmount.toLocaleString('uz-UZ');
+    doc.font('Courier-Bold').fontSize(11).text(`JAMI: ${finalTotal} UZS`, { align: 'right' });
+    
+    doc.moveDown(1);
+    doc.font('Courier').fontSize(8).text("Xaridingiz uchun rahmat!", { align: 'center' });
 
-          productsPrice: 100000,
+    // Hujjatni yakunlash va faylga yozish
+    doc.end();
 
-          serviceFee: 50000,
-
-          paidAmount: 100000,
-
-          debt: 50000,
-        }
-      );
-
-    res.status(200).json(result);
-  })
-);
-
-const { execFile } = require("child_process");
-
-router.get(
-  "/printer/windows-printers",
-  authMiddleware,
-  asyncHandler(async (req, res) => {
-    if (process.platform !== "win32") {
-      return res.json({
-        success: true,
-        printers: [],
-      });
-    }
-
-    execFile(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        "Get-Printer | Select-Object Name,DriverName,PortName | ConvertTo-Json -Compress",
-      ],
-      {
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          console.error(
-            "GET PRINTERS ERROR:",
-            error,
-            stderr
-          );
-
-          return res.status(500).json({
-            success: false,
-            message:
-              "Windows printerlarini olishda xato",
-          });
-        }
-
-        try {
-          const output = stdout.trim();
-
-          if (!output) {
-            return res.json({
-              success: true,
-              printers: [],
-            });
-          }
-
-          const parsed = JSON.parse(output);
-
-          const printers = Array.isArray(parsed)
-            ? parsed
-            : [parsed];
-
-          return res.json({
-            success: true,
-            printers,
-          });
-        } catch (error) {
-          return res.status(500).json({
-            success: false,
-            message:
-              "Printer ma'lumotlarini o'qib bo'lmadi",
-          });
-        }
+    // Fayl to'liq yozilib bo'lingach printerga jo'natish
+    stream.on('finish', async () => {
+      try {
+        await ptp.print(tempFilePath, { printer: PRINTER_NAME });
+        fs.unlinkSync(tempFilePath); // Vaqtinchalik faylni o'chirish
+        return res.status(200).json({ success: true, message: "Chek muvaffaqiyatli chop etildi!" });
+      } catch (printError) {
+        console.error("Chop etishda xato:", printError);
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        return res.status(500).json({ success: false, error: printError.message });
       }
-    );
-  })
-);
+    });
+
+  } catch (error) {
+    console.error("Tizim xatoligi:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;

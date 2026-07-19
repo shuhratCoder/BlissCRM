@@ -71,7 +71,7 @@ async function start() {
     await sequelize.authenticate();
 
     await sequelize.sync({
-      alter: true,
+      
     });
 
     console.log(
