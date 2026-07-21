@@ -171,10 +171,10 @@ function startFrontend() {
 
         PORT: "3009",
 
-        HOSTNAME: "localhost",
+        HOSTNAME: "127.0.0.1",
 
         BACKEND_API_URL:
-          "http://localhost:3008",
+          "http://127.0.0.1:3008",
       },
 
       stdio: [
@@ -233,7 +233,7 @@ function waitForPort(
 
       function check() {
         const socket = net.createConnection({
-          host: "localhost",
+          host: "127.0.0.1",
           port,
         });
 
@@ -268,19 +268,21 @@ function waitForPort(
 }
 
 function createWindow() {
-const mainWindow = new BrowserWindow({
-  width: 1200,
-  height: 800,
-  webPreferences: {
-    nodeIntegration: true,       // true bo'lishi shart!
-    contextIsolation: false,     // false bo'lishi shart!
-    sandbox: false               // Majburiy! Electron drayverlarini bloklamasligi uchun
-  }
+  mainWindow = new BrowserWindow({
+  width: 1400,
+  height: 900,
+  minWidth: 1100,
+  minHeight: 700,
+// YANGI TO'G'RILANGAN HOLATI:
+webPreferences: {
+  preload: path.join(__dirname, 'preload.js'),
+  contextIsolation: true,  // Asl holatiga (true) qaytaramiz
+  nodeIntegration: false,  // Asl holatiga (false) qaytaramiz
+},
 });
 
-
   mainWindow.loadURL(
-    "http://localhost:3009"
+    "http://127.0.0.1:3009"
   );
 
   mainWindow.webContents.on(
@@ -497,11 +499,11 @@ async function startApplication() {
 // Frontenddan kelgan chekni hech qanday oynasiz chop etish (Silent Print)
 // ==========================================
 // PRINTER BILAN JIMGINA (SILENT) ISHLASH QISMI
-// ==========================================
+
 
 // Boshqa kodlar qatorida tursin:
-// electron/main.js ning xavfsiz joyiga qo'ying (app.whenReady dan teparoqqa)
 ipcMain.on('print-silent', (event, htmlContent, printerName) => {
+  // Yashirin (show: false) oyna ochamiz, foydalanuvchi buni ko'rmaydi
   let workerWindow = new BrowserWindow({ 
     show: false, 
     webPreferences: { 
@@ -513,17 +515,17 @@ ipcMain.on('print-silent', (event, htmlContent, printerName) => {
   workerWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(htmlContent));
   
   workerWindow.webContents.on('did-finish-load', () => {
+    // silent: true — Windows-ning print oynasini 100% bloklaydi
     workerWindow.webContents.print({
       silent: true,
       printBackground: true,
       deviceName: printerName || 'XP-80' 
     }, (success, failureReason) => {
       if (!success) console.log('Chop etishda xato:', failureReason);
-      workerWindow.close(); 
+      workerWindow.close(); // Ish tugagach xotiradan o'chiramiz
     });
   });
 });
-
 
 
 // Kompyuterda o'rnatilgan printerlar ro'yxatini frontendga uzatish
