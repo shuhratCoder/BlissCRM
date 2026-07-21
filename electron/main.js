@@ -276,8 +276,8 @@ function createWindow() {
 // YANGI TO'G'RILANGAN HOLATI:
 webPreferences: {
   preload: path.join(__dirname, 'preload.js'),
-  contextIsolation: true,  // Asl holatiga (true) qaytaramiz
-  nodeIntegration: false,  // Asl holatiga (false) qaytaramiz
+  nodeIntegration: true,    // true bo'lishi shart
+  contextIsolation: false,  // Asl holatiga (false) qaytaramiz
 },
 });
 
@@ -500,7 +500,6 @@ async function startApplication() {
 // ==========================================
 // PRINTER BILAN JIMGINA (SILENT) ISHLASH QISMI
 // ==========================================
-const { app, BrowserWindow, ipcMain } = require('electron');
 
 // Boshqa kodlar qatorida tursin:
 ipcMain.on('print-silent', (event, htmlContent, printerName) => {
