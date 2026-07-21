@@ -273,12 +273,12 @@ function createWindow() {
   height: 900,
   minWidth: 1100,
   minHeight: 700,
-
-  webPreferences: {
-    contextIsolation: true,
-    nodeIntegration: false,
-    preload: path.join(__dirname, "preload.js"),
-  },
+// YANGI TO'G'RILANGAN HOLATI:
+webPreferences: {
+  preload: path.join(__dirname, 'preload.js'),
+  contextIsolation: true,  // Asl holatiga (true) qaytaramiz
+  nodeIntegration: false,  // Asl holatiga (false) qaytaramiz
+},
 });
 
   mainWindow.loadURL(
@@ -497,22 +497,37 @@ async function startApplication() {
 
 // ====== PRINTER BUYRUQLARI (IPC) START ======
 // Frontenddan kelgan chekni hech qanday oynasiz chop etish (Silent Print)
+// ==========================================
+// PRINTER BILAN JIMGINA (SILENT) ISHLASH QISMI
+// ==========================================
+const { app, BrowserWindow, ipcMain } = require('electron');
+
+// Boshqa kodlar qatorida tursin:
 ipcMain.on('print-silent', (event, htmlContent, printerName) => {
-  let workerWindow = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true } });
+  // Yashirin (show: false) oyna ochamiz, foydalanuvchi buni ko'rmaydi
+  let workerWindow = new BrowserWindow({ 
+    show: false, 
+    webPreferences: { 
+      nodeIntegration: true,
+      contextIsolation: false 
+    } 
+  });
   
   workerWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(htmlContent));
   
   workerWindow.webContents.on('did-finish-load', () => {
+    // silent: true — Windows-ning print oynasini 100% bloklaydi
     workerWindow.webContents.print({
       silent: true,
       printBackground: true,
       deviceName: printerName || 'XP-80' 
     }, (success, failureReason) => {
       if (!success) console.log('Chop etishda xato:', failureReason);
-      workerWindow.close(); 
+      workerWindow.close(); // Ish tugagach xotiradan o'chiramiz
     });
   });
 });
+
 
 // Kompyuterda o'rnatilgan printerlar ro'yxatini frontendga uzatish
 ipcMain.handle('get-printers', async () => {

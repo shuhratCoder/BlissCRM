@@ -1,6 +1,6 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld("electron", {
-  printReceipt: (payload) =>
-    ipcRenderer.invoke("print-receipt", payload),
+// Agar contextBridge allaqachon faylda ishlatilgan bo'lsa ham, boriga qo'shib qo'ying:
+contextBridge.exposeInMainWorld('electronPrinter', {
+  sendToPrinter: (htmlContent, printerName) => ipcRenderer.send('print-silent', htmlContent, printerName)
 });
