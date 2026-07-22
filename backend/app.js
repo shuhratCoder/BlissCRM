@@ -70,9 +70,7 @@ async function start() {
   try {
     await sequelize.authenticate();
 
-    await sequelize.sync({
-      
-    });
+    await sequelize.sync();
 
     console.log(
       'Database connected successfully'

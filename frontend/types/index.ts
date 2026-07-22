@@ -18,9 +18,9 @@ export interface AuthState {
 
 // ── Product (mebel backend API) ─────────────────────────────
 // API response shape: { id, name, amount, unit, type, description?, createdAt, updatedAt }
-export type ProductUnit = 'dona' | 'kg' | 'm' | 'm2' | 'litr'
+export type ProductUnit = 'dona' | 'kg' | 'metr' | 'm2' | 'litr' | 'blok' | 'pachka';
 
-export const PRODUCT_UNITS: ProductUnit[] = ['dona', 'kg', 'm', 'm2', 'litr']
+export const PRODUCT_UNITS: ProductUnit[] = ['dona', 'kg', 'metr', 'm2', 'litr', 'blok', 'pachka'];
 
 export type ProductType = 'whole' | 'piece'
 

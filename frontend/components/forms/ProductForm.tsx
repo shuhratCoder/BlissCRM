@@ -5,13 +5,12 @@ import React from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { buildProductSchema, type ProductFormData } from '@/lib/validations'
+import { buildProductSchema } from '@/lib/validations'
 import { useCreateProduct, useUpdateProduct } from '@/hooks'
 import { useT } from '@/lib/i18n'
 import { Button, Input, Select, PageHeader } from '@/components/ui'
 import type { Product, ProductUnit, ProductType } from '@/types'
-import { PRODUCT_UNITS, PRODUCT_TYPES } from '@/types'
-import { cn } from '@/lib/utils'
+import { PRODUCT_UNITS } from '@/types'
 
 interface ProductFormProps {
   product?: Product
@@ -31,38 +30,39 @@ export default function ProductForm({ product }: ProductFormProps) {
     register,
     handleSubmit,
     control,
-    watch,
-    setValue,
     formState: { errors },
-  } = useForm<ProductFormData>({
+  } = useForm<any>({
     resolver: zodResolver(schema),
     defaultValues: product
       ? {
           name: product.name ?? '',
           amount: product.amount ?? 0,
           unit: (product.unit ?? 'dona') as ProductUnit,
-          type: (product.type ?? 'whole') as ProductType,
+          type: (product.type ?? 'whole') as ProductType, 
           description: product.description ?? '',
+          price: (product as any).price ?? '', 
         }
       : {
           name: '',
           amount: 0,
           unit: 'dona',
-          type: 'whole',
+          type: 'whole', 
           description: '',
+          price: '', 
         },
   })
 
-  const selectedType = watch('type')
-
-  const onSubmit = async (data: ProductFormData) => {
+  const onSubmit = async (data: any) => {
     const payload: Partial<Product> = {
       name: data.name,
       amount: data.amount,
       unit: data.unit,
-      type: data.type,
+      type: data.type || 'whole', 
       description: data.description || undefined,
+      // @ts-ignore
+      price: data.price !== '' ? Number(data.price) : undefined, 
     }
+    
     if (isEdit) {
       await updateMutation.mutateAsync(payload)
     } else {
@@ -79,13 +79,16 @@ export default function ProductForm({ product }: ProductFormProps) {
       />
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4 shadow-sm">
+          
+          {/* 💡 TS FIX: error qismiga matn ekanligini qat'iy bildirish uchun String(...) yoki qat'iy kast ishlatildi */}
           <Input
             label={t('inventory.nameLabel')}
             placeholder={t('inventory.namePh')}
-            error={errors.name?.message}
+            error={errors.name?.message ? String(errors.name.message) : undefined}
             {...register('name')}
           />
+
           <div className="grid grid-cols-2 gap-4">
             <Input
               label={t('inventory.qtyLabel')}
@@ -99,13 +102,14 @@ export default function ProductForm({ product }: ProductFormProps) {
                   e.preventDefault()
                 }
               }}
-              error={errors.amount?.message}
+              error={errors.amount?.message ? String(errors.amount.message) : undefined}
               {...register('amount', { valueAsNumber: true })}
             />
+            
             <Select
               label={t('inventory.unitLabel')}
               placeholder={t('inventory.unitPh')}
-              error={errors.unit?.message}
+              error={errors.unit?.message ? String(errors.unit.message) : undefined}
               options={PRODUCT_UNITS.map((u) => ({
                 value: u,
                 label: t(`inventory.unit.${u}`),
@@ -113,6 +117,15 @@ export default function ProductForm({ product }: ProductFormProps) {
               {...register('unit')}
             />
           </div>
+
+          <Input
+            label={t('inventory.priceLabel') || "Narxi (Ixtiyoriy)"}
+            placeholder={t('inventory.pricePh') || "Mahsulot narxi (so'mda)"}
+            type="number"
+            min={0}
+            error={(errors as any).price?.message ? String((errors as any).price.message) : undefined}
+            {...register('price')}
+          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -131,41 +144,12 @@ export default function ProductForm({ product }: ProductFormProps) {
               )}
             />
             {errors.description?.message && (
-              <p className="text-xs text-red-500 mt-1">{errors.description.message}</p>
+              <p className="text-xs text-red-500 mt-1">{String(errors.description.message)}</p>
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('inventory.typeLabel')}
-            </label>
-            <input type="hidden" {...register('type')} />
-            <div className="grid grid-cols-2 gap-2">
-              {PRODUCT_TYPES.map((ty) => {
-                const active = selectedType === ty
-                return (
-                  <button
-                    key={ty}
-                    type="button"
-                    onClick={() =>
-                      setValue('type', ty, { shouldValidate: true, shouldDirty: true })
-                    }
-                    className={cn(
-                      'h-10 rounded-lg border text-sm font-medium transition-colors',
-                      active
-                        ? 'bg-blue-600 text-white border-transparent'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50',
-                    )}
-                  >
-                    {t(`inventory.type.${ty}`)}
-                  </button>
-                )
-              })}
-            </div>
-            {errors.type?.message && (
-              <p className="text-xs text-red-500 mt-1">{errors.type.message}</p>
-            )}
-          </div>
+          <input type="hidden" value="whole" {...register('type')} />
+
         </div>
 
         <div className="flex items-center gap-3">

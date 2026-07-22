@@ -21,12 +21,15 @@ const Product = sequelize.define("Product", {
   },
 
   unit: {
+    // 💡 Yangi "blok" va "pachka" birliklari ENUM ro'yxatiga muvaffaqiyatli qo'shildi
     type: DataTypes.ENUM(
       "dona",
       "kg",
       "m",
       "m2",
-      "litr"
+      "litr",
+      "blok",
+      "pachka"
     ),
     allowNull: false,
   },
@@ -38,6 +41,13 @@ const Product = sequelize.define("Product", {
     ),
     allowNull: false,
     defaultValue: "whole",
+  },
+
+  // 💡 YANGI USTUN: Ixtiyoriy mahsulot narxi (so'mda)
+   priceGet: {
+    type: DataTypes.DECIMAL(12, 2), 
+    allowNull: true,
+    defaultValue: null
   },
 
   description: {

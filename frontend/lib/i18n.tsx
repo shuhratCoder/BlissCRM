@@ -189,36 +189,19 @@ const ru: Dict = {
   'inventory.deleteDesc': 'Товар "{name}" будет удалён.',
   'inventory.notFound': 'Товар не найден',
 
-  // add / edit product modal
-  'inventory.addModalTitle': 'Создать товар',
-  'inventory.editModalTitle': 'Редактировать товар',
-  'inventory.namePh': 'Название товара',
-  'inventory.qtyLabel': 'Количество *',
-  'inventory.nameLabel': 'Название товара *',
-  'inventory.unitLabel': 'Единица измерения *',
-  'inventory.unitPh': 'Выберите единицу',
+    // ... существующие строки
   'inventory.unit.dona': 'Шт',
   'inventory.unit.kg': 'Кг',
   'inventory.unit.m': 'Метр',
   'inventory.unit.m2': 'м²',
   'inventory.unit.litr': 'Литр',
-  'inventory.typeLabel': 'Тип *',
-  'inventory.type.whole': 'Целый',
-  'inventory.type.piece': 'Часть',
-  'inventory.descLabel': 'Описание',
-  'inventory.descPh': 'Дополнительная информация о товаре...',
-  'inventory.colType': 'Тип',
-  'inventory.colComment': 'Комментарий',
-  'inventory.purchaseBtn': 'Закупка',
-  'inventory.purchaseTitle': 'Закупка товара',
-  'inventory.purchaseProduct': 'Товар *',
-  'inventory.purchaseProductPh': 'Выберите товар со склада',
-  'inventory.purchaseAmount': 'Количество к добавлению *',
-  'inventory.purchaseCurrent': 'Сейчас на складе: {n}',
-  'inventory.purchaseProjected': 'Было {current} → станет {total}',
-  'inventory.purchaseSubmit': 'Пополнить склад',
-  'inventory.purchaseAddRow': 'Добавить товар',
-  'inventory.purchaseEmpty': 'Добавьте хотя бы один товар с количеством',
+  'inventory.unit.blok': 'Блок',      // 💡 Новое: Блок
+  'inventory.unit.pachka': 'Пачка',  // 💡 Новое: Пачка
+  
+  'inventory.priceLabel': 'Цена (Опционально)', // 💡 Новое: Поле цены
+  'inventory.pricePh': 'Цена товара (в сумах)',
+  // ... остальные строки
+
 
   // product form
   'productForm.editTitle': 'Редактировать товар',
@@ -614,36 +597,19 @@ const uz: Dict = {
   'inventory.deleteDesc': "\"{name}\" mahsulot o'chiriladi.",
   'inventory.notFound': 'Mahsulot topilmadi',
 
-  // add / edit product modal
-  'inventory.addModalTitle': 'Mahsulot yaratish',
-  'inventory.editModalTitle': 'Mahsulotni tahrirlash',
-  'inventory.namePh': 'Mahsulot nomi',
-  'inventory.qtyLabel': 'Miqdori *',
-  'inventory.nameLabel': 'Mahsulot nomi *',
-  'inventory.unitLabel': "O'lchov birligi *",
-  'inventory.unitPh': 'Birlikni tanlang',
+    // ... mavjud kodlar
   'inventory.unit.dona': 'Dona',
   'inventory.unit.kg': 'Kg',
   'inventory.unit.m': 'Metr',
   'inventory.unit.m2': 'm²',
   'inventory.unit.litr': 'Litr',
-  'inventory.typeLabel': 'Turi *',
-  'inventory.type.whole': "Yaxlit",
-  'inventory.type.piece': 'Bo\'lakli',
-  'inventory.descLabel': 'Tavsif',
-  'inventory.descPh': "Mahsulot haqida qo'shimcha ma'lumot...",
-  'inventory.colType': 'Turi',
-  'inventory.colComment': 'Izoh',
-  'inventory.purchaseBtn': 'Xarid',
-  'inventory.purchaseTitle': 'Mahsulot xaridi',
-  'inventory.purchaseProduct': 'Mahsulot *',
-  'inventory.purchaseProductPh': 'Ombordan mahsulotni tanlang',
-  'inventory.purchaseAmount': "Qo'shiladigan miqdor *",
-  'inventory.purchaseCurrent': 'Hozir omborda: {n}',
-  'inventory.purchaseProjected': "{current} edi → {total} bo'ladi",
-  'inventory.purchaseSubmit': "Omborni to'ldirish",
-  'inventory.purchaseAddRow': "Mahsulot qo'shish",
-  'inventory.purchaseEmpty': "Kamida bitta mahsulot va miqdor qo'shing",
+  'inventory.unit.blok': 'Blok',      // 💡 Yangi qo'shildi
+  'inventory.unit.pachka': 'Pachka',  // 💡 Yangi qo'shildi
+  
+  'inventory.priceLabel': 'Narxi (Ixtiyoriy)', // 💡 Yangi ixtiyoriy maydon uchun
+  'inventory.pricePh': 'Mahsulot narxi (so\'mda)',
+  // ... qolgan kodlar
+
 
   // product form
   'productForm.editTitle': 'Mahsulotni tahrirlash',

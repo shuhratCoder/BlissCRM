@@ -13,11 +13,16 @@ export default function PrinterSettingsPage() {
   const [connectionType, setConnectionType] = React.useState<'test' | 'lan' | 'usb'>('usb')
   const [printers, setPrinters] = React.useState<ElectronPrinter[]>([])
   const [selectedPrinter, setSelectedPrinter] = React.useState<string>('')
-  const [companyName, setCompanyName] = React.useState('BLISS MEBEL')
-  const [phone, setPhone] = React.useState('+998 90 123 45 67')
+  const [companyName, setCompanyName] = React.useState('Shuhrat')
+  const [phone, setPhone] = React.useState('97 677 23 01')
+  
+  // 💡 YANGI QO'SHILGAN DINAMIK MAYDONLAR REPLICA STATE'LARI:
+  const [companyDescription, setCompanyDescription] = React.useState('Sifatli mebellar maskani')
+  const [companyAddress, setCompanyAddress] = React.useState('')
+  const [thanksMessage, setThanksMessage] = React.useState('Xaridingiz uchun rahmat!')
+  
   const [isLoadingPrinters, setIsLoadingPrinters] = React.useState(false)
 
-  // 1. Sahifa yuklanganda saqlangan sozlamalarni va Electron printerlarini yuklash
   React.useEffect(() => {
     // LocalStorage xotirasidan o'qish
     const savedPrinter = localStorage.getItem('selected_printer')
@@ -29,35 +34,34 @@ export default function PrinterSettingsPage() {
     const savedPhone = localStorage.getItem('printer_phone')
     if (savedPhone) setPhone(savedPhone)
 
+    // 💡 Xotiradan yangi kalitlarni o'qish:
+    const savedDesc = localStorage.getItem('printer_company_description')
+    if (savedDesc) setCompanyDescription(savedDesc)
+
+    const savedAddr = localStorage.getItem('printer_company_address')
+    if (savedAddr) setCompanyAddress(savedAddr)
+
+    const savedThanks = localStorage.getItem('printer_thanks_message')
+    if (savedThanks) setThanksMessage(savedThanks)
+
     const savedType = localStorage.getItem('printer_connection_type') as 'test' | 'lan' | 'usb'
     if (savedType) setConnectionType(savedType)
 
-    // Electron orqali kompyuterdagi drayverlar ro'yxatini olish
     const fetchSystemPrinters = async () => {
       setIsLoadingPrinters(true)
       try {
         const globalWindow = window as any
-        // Electron muhitini tekshirish va IPC invoke qilish
         if (globalWindow.electron && globalWindow.electron.ipcRenderer) {
           const systemPrinters = await globalWindow.electron.ipcRenderer.invoke('get-printers')
           setPrinters(systemPrinters || [])
-          
-          // Agar xotira bo'sh bo'lsa, standart (default) printerni tanlab qo'yish
-          if (!savedPrinter && systemPrinters && systemPrinters.length > 0) {
-            const defaultPrinter = systemPrinters.find((p: ElectronPrinter) => p.isDefault) || systemPrinters[0]
-            setSelectedPrinter(defaultPrinter.name)
-            localStorage.setItem('selected_printer', defaultPrinter.name)
-          }
         } else if (globalWindow.require) {
           const { ipcRenderer } = globalWindow.require('electron')
           const systemPrinters = await ipcRenderer.invoke('get-printers')
           setPrinters(systemPrinters || [])
         } else {
-          console.warn("Electron IPC topilmadi, brauzer rejimida ishlamoqda.")
-          // Sinov uchun dummy drayverlar
           setPrinters([
-            { name: 'XP-80', isDefault: true, status: 0 },
-            { name: 'Xprinter XP-80T', isDefault: false, status: 0 }
+            { name: 'Xprinter XP-80T', isDefault: true, status: 0 },
+            { name: 'XP-80', isDefault: false, status: 0 }
           ])
         }
       } catch (err) {
@@ -70,22 +74,23 @@ export default function PrinterSettingsPage() {
     fetchSystemPrinters()
   }, [])
 
-  // 2. Printer o'zgarganda xotiraga saqlash funksiyasi
   const handlePrinterChange = (name: string) => {
     setSelectedPrinter(name)
     localStorage.setItem('selected_printer', name)
   }
 
-  // Ulanish turi o'zgarganda saqlash
   const handleTypeChange = (type: 'test' | 'lan' | 'usb') => {
     setConnectionType(type)
     localStorage.setItem('printer_connection_type', type)
   }
 
-  // Matnli ma'lumotlar o'zgarganda saqlash funksiyasi
+  // 💡 O'zgarishlarni xotiraga saqlash mantiqi:
   const handleSaveChanges = () => {
     localStorage.setItem('printer_company_name', companyName)
     localStorage.setItem('printer_phone', phone)
+    localStorage.setItem('printer_company_description', companyDescription)
+    localStorage.setItem('printer_company_address', companyAddress)
+    localStorage.setItem('printer_thanks_message', thanksMessage)
     alert("Sozlamalar muvaffaqiyatli saqlandi! 💾")
   }
 
@@ -96,7 +101,7 @@ export default function PrinterSettingsPage() {
         <p className="text-sm text-gray-500 mt-1">Xprinter XP-80T printerini va chek shablonini sozlash</p>
       </div>
 
-      {/* ULANISH TURI SEKTORI */}
+      {/* ULANISH TURI */}
       <div className="bg-white border rounded-xl p-5 space-y-4 shadow-sm">
         <h3 className="font-medium text-gray-900">Ulanish turi</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -162,9 +167,41 @@ export default function PrinterSettingsPage() {
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
             />
           </div>
+
+          {/* 💡 YANGI QO'SHILGAN MAYDONLAR INPUTLARI: */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-500 uppercase">Firma Izohi (Slogan)</label>
+            <input
+              type="text"
+              value={companyDescription}
+              onChange={(e) => setCompanyDescription(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+              placeholder="Masalan: Sifatli mebellar maskani"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-500 uppercase">Firma Manzili</label>
+            <input
+              type="text"
+              value={companyAddress}
+              onChange={(e) => setCompanyAddress(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+              placeholder="Masalan: Toshkent sh., Chilonzor"
+            />
+          </div>
         </div>
 
-        {/* WINDOWS PRINTER DRAYVERLARINI DINAMIK SELECT QILISH */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-500 uppercase">Chek ostidagi Rahmatnoma matni</label>
+          <input
+            type="text"
+            value={thanksMessage}
+            onChange={(e) => setThanksMessage(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-600"
+          />
+        </div>
+
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-gray-500 uppercase">Windows printer nomi</label>
           <select
@@ -176,7 +213,7 @@ export default function PrinterSettingsPage() {
             {isLoadingPrinters ? (
               <option>Printerlar yuklanmoqda...</option>
             ) : printers.length === 0 ? (
-              <option value="">Printerlar topilmadi (XP-80 standart o'rnatiladi)</option>
+              <option value="">Printerlar topilmadi</option>
             ) : (
               printers.map((p, idx) => (
                 <option key={idx} value={p.name}>
@@ -185,10 +222,8 @@ export default function PrinterSettingsPage() {
               ))
             )}
           </select>
-          <p className="text-[11px] text-gray-400">Windows tizimida "Printers & Scanners" bo'limida o'rnatilgan drayverlar avtomatik aniqlanadi.</p>
         </div>
 
-        {/* SAQLASH TUGMASI */}
         <div className="flex justify-end pt-2">
           <button
             onClick={handleSaveChanges}

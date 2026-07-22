@@ -15,21 +15,16 @@ export const buildLoginSchema = (t: T) =>
 export type LoginFormData = z.infer<ReturnType<typeof buildLoginSchema>>
 
 // ── Product ──────────────────────────────────────────────────
-export const buildProductSchema = (t: T) =>
-  z.object({
-    name: z.string().min(2, t('val.minChars', { n: 2 })).max(200, t('val.maxChars', { n: 200 })),
-    amount: z
-      .number({ invalid_type_error: t('val.enterNumber') })
-      .int(t('val.integer'))
-      .min(0, t('val.qtyNonNeg')),
-    unit: z.enum(['dona', 'kg', 'm', 'm2', 'litr'], {
-      errorMap: () => ({ message: t('val.chooseUnit') }),
-    }),
-    type: z.enum(['whole', 'piece'], {
-      errorMap: () => ({ message: t('val.chooseType') }),
-    }),
-    description: z.string().max(500, t('val.maxChars', { n: 500 })).optional().or(z.literal('')),
-  })
+// buildProductSchema ichiga narx maydonini qo'shib qo'ying:
+export const buildProductSchema = (t: any) => z.object({
+  name: z.string().min(1, t('common.required')),
+  amount: z.number().min(0),
+  unit: z.string(),
+  type: z.string(),
+  description: z.string().optional(),
+  price: z.number().or(z.string().transform(() => undefined)).optional(), // 💡 Ixtiyoriy narx
+});
+
 
 export type ProductFormData = z.infer<ReturnType<typeof buildProductSchema>>
 

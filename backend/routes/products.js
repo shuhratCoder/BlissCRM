@@ -16,14 +16,15 @@ router.post(
       name,
       amount = 0,
       unit,
-      type,
+      type = "whole", // 💡 Turi kiritilishi ixtiyoriy bo'ldi, kelmasa 'whole' yoziladi
       description,
+      price, // 💡 Yangi ixtiyoriy narx maydoni qo'shildi
     } = req.body;
 
-    if (!name || !unit || !type) {
+    // type majburiy emasligi sababli validatsiyadan olib tashlandi
+    if (!name || !unit) {
       return res.status(400).json({
-        error:
-          "Name, unit va type majburiy",
+        error: "Name va unit majburiy",
       });
     }
 
@@ -31,8 +32,9 @@ router.post(
       name,
       amount: Number(amount),
       unit,
-      type,
+      type, // 'whole' yoki kelgan qiymat yoziladi
       description,
+      price: price !== undefined && price !== "" && price !== null ? Number(price) : null, // 💡 Narxni tekshirib saqlash
     });
 
     return res.status(201).json(product);
@@ -137,6 +139,7 @@ router.put(
       unit,
       type,
       description,
+      price, // 💡 Tahrirlashda ham yangi narx maydoni qo'shildi
     } = req.body;
 
     const product = await Product.findByPk(id);
@@ -154,8 +157,9 @@ router.put(
           ? Number(amount)
           : product.amount,
       unit,
-      type,
+      type: type || product.type || "whole", // 💡 Turi kelmasa eskisini qoldiradi yoki 'whole' qiladi
       description,
+      price: price !== undefined && price !== "" && price !== null ? Number(price) : product.price, // 💡 Narxni yangilash
     });
 
     return res.status(200).json(product);
