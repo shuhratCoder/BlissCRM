@@ -49,8 +49,9 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // LOCAL CRM ROUTES
-app.use('/crm', localAuthRoutes);
 app.use('/crm', productRoutes);
+app.use('/crm', localAuthRoutes);
+
 app.use('/crm', clientRoutes);
 app.use('/crm', orderRoutes);
 app.use('/crm', paymentRoutes);

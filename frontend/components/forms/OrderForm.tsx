@@ -776,32 +776,16 @@ export default function OrderForm() {
                         patch,
                       )
                     }
-                    onPickProduct={(
-                      productId,
-                    ) => {
-                      const product =
-                        products?.find(
-                          (
-                            productItem,
-                          ) =>
-                            productItem.id ===
-                            productId,
-                        )
-
-                      patchItem(
-                        index,
-                        {
-                          productId,
-
-                          quantity: 1,
-
-                          price:
-                            parsePrice(
-                              product?.price ??
-                                0,
-                            ),
-                        },
+                    onPickProduct={(productId) => {
+                      const product = products?.find(
+                        (productItem) =>
+                          productItem.id === productId,
                       )
+                      patchItem(index, {
+                      productId,
+                      quantity: 1,
+                      price: parsePrice(product?.priceGet ?? 0),
+                    })
                     }}
                     onRemove={() =>
                       removeItemRow(

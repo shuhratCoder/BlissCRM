@@ -15,15 +15,20 @@ export const buildLoginSchema = (t: T) =>
 export type LoginFormData = z.infer<ReturnType<typeof buildLoginSchema>>
 
 // ── Product ──────────────────────────────────────────────────
-// buildProductSchema ichiga narx maydonini qo'shib qo'ying:
-export const buildProductSchema = (t: any) => z.object({
-  name: z.string().min(1, t('common.required')),
-  amount: z.number().min(0),
-  unit: z.string(),
-  type: z.string(),
-  description: z.string().optional(),
-  price: z.number().or(z.string().transform(() => undefined)).optional(), // 💡 Ixtiyoriy narx
-});
+export const buildProductSchema = (t: any) => {
+  return z.object({
+    name: z.string().min(1, t('common.required') || 'Majburiy'),
+    amount: z.number().min(0).default(0),
+    unit: z.string().min(1, t('common.required') || 'Majburiy'),
+    type: z.string().default('whole'),
+    description: z.string().optional().nullable(),
+    
+    // 💡 MANA SHU YANGI QATORNI QO'SHING (Validatsiya o'tkazishi uchun):
+    priceGet: z.union([z.number(), z.string(), z.null(), z.undefined()])
+      .transform((val) => (val === '' || val === undefined ? undefined : Number(val)))
+      .optional()
+  });
+};
 
 
 export type ProductFormData = z.infer<ReturnType<typeof buildProductSchema>>

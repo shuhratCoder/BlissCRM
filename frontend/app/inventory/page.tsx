@@ -50,7 +50,7 @@ export default function InventoryPage() {
   return (
     <div className="space-y-5 p-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
-        <PageHeader title="Omborxona (Inventar)" description="Mebel xom-ashyolar va tayyor mahsulotlar balansi" />
+        <PageHeader title="Omborxona (Inventar)" description="Xom-ashyolar va tayyor mahsulotlar balansi" />
         <div className="flex items-center gap-2">
           {/* 💡 TARJIMA FIX: Kalit buzilsa ham, toza matn chiqishi uchun zaxira matnlar qo'shildi */}
           <Button variant="secondary" onClick={() => setPurchaseModalOpen(true)} className="flex items-center gap-2">
@@ -111,13 +111,12 @@ export default function InventoryPage() {
                   <td className="p-4 font-semibold text-blue-600">{p.amount}</td>
                   <td className="p-4 text-gray-500">{t(`inventory.unit.${p.unit}`) || p.unit}</td>
                   <td className="p-4">
-  {p.priceGet || p.price || (p as any).priceget ? (
-    `${Number(p.priceGet || p.price || (p as any).priceget).toLocaleString('uz-UZ')} UZS`
-  ) : (
-    <span className="text-gray-400 italic">Kiritilmagan</span>
-  )}
-</td>
-
+                      {p.priceGet ? (
+                        `${Number(p.priceGet).toLocaleString('uz-UZ')} UZS`
+                      ) : (
+                        <span className="text-gray-400 italic">Kiritilmagan</span>
+                      )}
+                    </td>
                   <td className="p-4 text-gray-400 max-w-xs truncate">{p.description || '-'}</td>
                   <td className="p-4 text-right space-x-1">
                     <button onClick={() => setProductModal({ open: true, mode: 'edit', product: p })} className="p-1.5 text-gray-500 hover:text-blue-600 rounded-lg hover:bg-blue-50">
@@ -201,21 +200,29 @@ function ProductFormBody({ mode, product, onDone }: { mode: 'create' | 'edit'; p
         },
   })
 
-  const onSubmit = async (data: any) => {
-    const payload = {
-      name: data.name,
-      amount: data.amount,
-      unit: data.unit as any,
-      type: (data.type || 'whole') as any,
-      description: data.description || undefined,
-      priceGet: data.priceGet ? Number(data.priceGet) : undefined, // 💡 Baza uchun priceGet ustuni yangilandi
+    const onSubmit = async (data: any) => {
+    try {
+      const payload = {
+        name: data.name,
+        amount: data.amount,
+        unit: data.unit as any,
+        type: (data.type || 'whole') as any,
+        description: data.description || undefined,
+        priceGet: data.priceGet ? Number(data.priceGet) : undefined,
+      }
+      
+      if (isEdit) {
+        await updateMutation.mutateAsync(payload)
+      } else {
+        await createMutation.mutateAsync(payload)
+      }
+      onDone()
+    } catch (err: any) {
+      console.error("Xaridni saqlashda xato:", err);
+      
+      // 💡 Sakkizburchak qizil oyna chiqmasligi uchun validation xatosini ushlab qolamiz:
+      alert("Xatolik: Bu nomdagi mahsulot omborda allaqachon mavjud yoki narx formati xato! Iltimos, boshqa nom kiritib ko'ring.");
     }
-    if (isEdit) {
-      await updateMutation.mutateAsync(payload)
-    } else {
-      await createMutation.mutateAsync(payload)
-    }
-    onDone()
   }
 
   return (

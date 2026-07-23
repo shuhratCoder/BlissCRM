@@ -30,15 +30,16 @@ export interface Product {
   id: string
   name: string
   amount: number
+
+  priceGet?: number
+
   unit?: ProductUnit
   type?: ProductType
   description?: string
+
   createdAt?: string
   updatedAt?: string
-  // Optional — preserved for any legacy callers; not part of the new API.
-  price?: string | number
 }
-
 // ── Client (mebel backend) — GET /getClients returns full graph ──
 export type ClientPaymentType = 'cash' | 'card' | 'transfer' | string
 
@@ -63,7 +64,16 @@ export interface ClientDeadline {
 
 export interface ClientOrderProduct {
   productId: string
+
   amount: number
+
+  name?: string
+
+  price?: number
+
+  priceGet?: number
+
+  total?: number
 }
 
 // Client subset embedded inside an Order in GET /getOrders.
