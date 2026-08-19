@@ -422,35 +422,48 @@ export interface PinLoginResponse {
 }
 
 export async function loginWithPin(
-  pin: string,
+  pin: string
 ): Promise<PinLoginResponse> {
   const response = await fetch(
     `${CRM_BASE}/login-pin`,
     {
-      method: 'POST',
+      method: "POST",
 
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type":
+          "application/json",
       },
 
       body: JSON.stringify({
         pin,
       }),
-    },
-  )
+    }
+  );
 
-  const result = await response
-    .json()
-    .catch(() => null)
+  const result =
+    await response
+      .json()
+      .catch(() => null);
 
   if (!response.ok) {
-    throw new Error(
+    throw new LicenseCheckError(
       result?.message ||
-      'PIN kod noto‘g‘ri',
-    )
+        "PIN kod noto‘g‘ri",
+
+      {
+        code:
+          result?.code,
+
+        status:
+          response.status,
+
+        online:
+          result?.online,
+      }
+    );
   }
 
-  return result as PinLoginResponse
+  return result as PinLoginResponse;
 }
 // ─────────────────────────────────────────────────────────────
 // LICENSE CHECK
@@ -477,27 +490,33 @@ export interface LicenseCheckResponse {
 }
 
 export class LicenseCheckError extends Error {
-  code?: string
-  status?: number
-  online?: boolean
+  code?: string;
+  status?: number;
+  online?: boolean;
 
   constructor(
     message: string,
     options?: {
-      code?: string
-      status?: number
-      online?: boolean
-    },
+      code?: string;
+      status?: number;
+      online?: boolean;
+    }
   ) {
-    super(message)
+    super(message);
 
-    this.name = 'LicenseCheckError'
-    this.code = options?.code
-    this.status = options?.status
-    this.online = options?.online
+    this.name =
+      "LicenseCheckError";
+
+    this.code =
+      options?.code;
+
+    this.status =
+      options?.status;
+
+    this.online =
+      options?.online;
   }
 }
-
 export async function checkLicenseRequest(): Promise<LicenseCheckResponse> {
   const response = await fetch(
     `${CRM_BASE}/check-license`,

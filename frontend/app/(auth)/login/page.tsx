@@ -15,6 +15,7 @@ import {
   setupPinRequest,
   getLocalStatus,
   loginWithPin,
+  LicenseCheckError,
   type LoginResponse,
 } from "@/lib/api";
 
@@ -33,7 +34,13 @@ const LICENSE_ERROR_CODES = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setAdmin, authError, authErrorCode, clearAuthError } = useAuthStore();
+  const {
+  setAdmin,
+  authError,
+  authErrorCode,
+  setAuthError,
+  clearAuthError,
+} = useAuthStore();
 
   const { t, lang, setLang } = useT();
 
@@ -230,45 +237,80 @@ export default function LoginPage() {
   // PIN LOGIN
   // ==========================================================
 
-  const handlePinLogin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+const handlePinLogin = async (
+  event: React.FormEvent<HTMLFormElement>
+) => {
+  event.preventDefault();
 
-    setError("");
+  setError("");
+  clearAuthError();
 
-    if (!/^\d{4}$/.test(pin)) {
-      setError("PIN aynan 4 xonali son bo‘lishi kerak");
+  if (!/^\d{4}$/.test(pin)) {
+    setError(
+      "PIN aynan 4 xonali son bo‘lishi kerak"
+    );
 
-      return;
-    }
+    return;
+  }
 
-    setIsSavingPin(true);
+  setIsSavingPin(true);
 
-    try {
-      const response = await loginWithPin(pin);
+  try {
+    const response =
+      await loginWithPin(pin);
 
-      setAdmin(
-        {
-          id: response.user.id,
+    setAdmin(
+      {
+        id: response.user.id,
 
-          name: response.user.companyName || response.user.username,
+        name:
+          response.user.companyName ||
+          response.user.username,
 
-          email: `${response.user.username}@local.crm`,
+        email:
+          `${response.user.username}@local.crm`,
 
-          createdAt: new Date().toISOString(),
-        },
-        response.token,
+        createdAt:
+          new Date().toISOString(),
+      },
+
+      response.token
+    );
+
+    setPin("");
+
+    router.replace("/dashboard");
+  } catch (e) {
+    console.error(
+      "PIN LOGIN ERROR:",
+      e
+    );
+
+    if (
+      e instanceof LicenseCheckError
+    ) {
+      setAuthError(
+        e.message ||
+          "Litsenziya bilan bog‘liq muammo mavjud",
+
+        e.code ||
+          "LICENSE_INACTIVE"
       );
 
       setPin("");
 
-      router.replace("/dashboard");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "PIN kod noto‘g‘ri");
-    } finally {
-      setIsSavingPin(false);
+      return;
     }
-  };
 
+    setError(
+      e instanceof Error
+        ? e.message
+        : "PIN kod noto‘g‘ri"
+    );
+  } finally {
+    setIsSavingPin(false);
+  }
+};
   // ==========================================================
   // RETRY LICENSE
   // ==========================================================
