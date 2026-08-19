@@ -9,7 +9,7 @@ import { useAuthStore } from '@/store'
 // Birinchi kirishda username/password va license tekshirish uchun
 const AUTH_BASE =
   process.env.NEXT_PUBLIC_AUTH_API_URL ??
-  'http://192.168.8.222:4000/auth'
+  'https://blissmebel.uz/api/auth'
 
 // LOCAL DESKTOP CRM BACKEND
 // Product, Client, Order, Payment va boshqa lokal ma'lumotlar
