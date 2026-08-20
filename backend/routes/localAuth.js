@@ -11,40 +11,104 @@ const ADMIN_API_URL =
   "https://blissmebel.uz/api";
 async function verifyLocalLicense(localUser) {
   // ==========================================================
-  // 1. ADMIN SERVER ORQALI TEKSHIRISH
+  // ADMIN CRM API
+  // ==========================================================
+
+  const adminApiUrl =
+    process.env.ADMIN_API_URL ||
+    "https://blissmebel.uz/api";
+
+  const verifyUrl =
+    `${adminApiUrl}/auth/verify-license`;
+
+  console.log(
+    "[LICENSE] Checking Admin CRM..."
+  );
+
+  console.log(
+    "[LICENSE] URL:",
+    verifyUrl
+  );
+
+  console.log(
+    "[LICENSE] Owner ID:",
+    localUser.ownerId
+  );
+
+  console.log(
+    "[LICENSE] License ID:",
+    localUser.licenseId
+  );
+
+  // ==========================================================
+  // 1. ONLINE CHECK
   // ==========================================================
 
   try {
-    const response = await fetch(
-      `${ADMIN_API_URL}/auth/verify-license`,
-      {
-        method: 'POST',
+    const response =
+      await fetch(
+        verifyUrl,
+        {
+          method: "POST",
 
-        headers: {
-          'Content-Type': 'application/json',
-        },
+          headers: {
+            "Content-Type":
+              "application/json",
 
-        body: JSON.stringify({
-          ownerId: localUser.ownerId,
-          licenseId: localUser.licenseId,
-        }),
+            Accept:
+              "application/json",
+          },
 
-        signal: AbortSignal.timeout(5000),
-      }
-    );
+          body: JSON.stringify({
+            ownerId:
+              localUser.ownerId,
+
+            licenseId:
+              localUser.licenseId,
+          }),
+
+          signal:
+            AbortSignal.timeout(
+              5000
+            ),
+        }
+      );
 
     let result = {};
 
     try {
-      result = await response.json();
-    } catch {
-      result = {};
+      result =
+        await response.json();
+    } catch (jsonError) {
+      console.error(
+        "[LICENSE] Invalid JSON response:",
+        jsonError.message
+      );
     }
 
+    console.log(
+      "[LICENSE] Admin response status:",
+      response.status
+    );
+
+    console.log(
+      "[LICENSE] Admin response:",
+      result
+    );
+
     // ========================================================
-    // SERVER TOMONIDAN RAD ETILGAN HOLAT
-    // HTTP status yoki success=false bo'lishidan qat'i nazar
-    // LOGINGA RUXSAT YO'Q
+    // SERVER JAVOBI KELDI
+    //
+    // MUHIM:
+    // Agar server javob bergan bo'lsa, offline fallback
+    // QILMAYMIZ.
+    //
+    // OWNER_BLOCKED
+    // LICENSE_BLOCKED
+    // LICENSE_EXPIRED
+    // LICENSE_INACTIVE
+    //
+    // barchasi loginni to'xtatadi.
     // ========================================================
 
     if (
@@ -52,62 +116,142 @@ async function verifyLocalLicense(localUser) {
       result.success === false
     ) {
       const code =
-        result.code || 'LICENSE_REJECTED';
+        result.code ||
+        "LICENSE_REJECTED";
 
-      // Block holatini localga ham saqlaymiz
+      console.warn(
+        "[LICENSE] REJECTED:",
+        code
+      );
+
+      // ------------------------------------------------------
+      // OWNER BLOCKED
+      // ------------------------------------------------------
+
       if (
-        code === 'LICENSE_BLOCKED' ||
-        code === 'OWNER_BLOCKED'
+        code === "OWNER_BLOCKED"
       ) {
         await localUser.update({
-          licenseStatus: 'blocked',
+          licenseStatus:
+            "blocked",
         });
+
+        return {
+          allowed: false,
+
+          online: true,
+
+          code:
+            "OWNER_BLOCKED",
+
+          message:
+            result.message ||
+            "Hisob bloklangan",
+        };
       }
 
-      // Expired holatini localga ham saqlaymiz
+      // ------------------------------------------------------
+      // LICENSE BLOCKED
+      // ------------------------------------------------------
+
       if (
-        code === 'LICENSE_EXPIRED'
+        code === "LICENSE_BLOCKED"
       ) {
         await localUser.update({
-          licenseStatus: 'expired',
+          licenseStatus:
+            "blocked",
         });
+
+        return {
+          allowed: false,
+
+          online: true,
+
+          code:
+            "LICENSE_BLOCKED",
+
+          message:
+            result.message ||
+            "Litsenziya bloklangan",
+        };
       }
 
-      // Boshqa inactive/rejected holatlar
+      // ------------------------------------------------------
+      // LICENSE EXPIRED
+      // ------------------------------------------------------
+
       if (
-        code === 'LICENSE_INACTIVE'
+        code === "LICENSE_EXPIRED"
       ) {
         await localUser.update({
-          licenseStatus: 'inactive',
+          licenseStatus:
+            "expired",
         });
+
+        return {
+          allowed: false,
+
+          online: true,
+
+          code:
+            "LICENSE_EXPIRED",
+
+          message:
+            result.message ||
+            "Litsenziya muddati tugagan",
+        };
       }
+
+      // ------------------------------------------------------
+      // OTHER REJECTED
+      // ------------------------------------------------------
+
+      await localUser.update({
+        licenseStatus:
+          "inactive",
+      });
 
       return {
         allowed: false,
+
         online: true,
+
         code,
+
         message:
           result.message ||
-          'Litsenziya tasdiqlanmadi',
+          "Litsenziya tasdiqlanmadi",
       };
     }
 
     // ========================================================
-    // 2. ONLINE LICENSE MA'LUMOTINI LOCALGA YOZISH
+    // SERVER SUCCESS
     // ========================================================
 
     if (
       !result.owner ||
       !result.license
     ) {
+      console.error(
+        "[LICENSE] Invalid successful response"
+      );
+
       return {
         allowed: false,
+
         online: true,
-        code: 'INVALID_LICENSE_RESPONSE',
+
+        code:
+          "INVALID_LICENSE_RESPONSE",
+
         message:
-          'Serverdan litsenziya maʼlumotlari noto‘g‘ri keldi',
+          "Serverdan litsenziya maʼlumotlari noto‘g‘ri keldi",
       };
     }
+
+    // ========================================================
+    // LOCAL CACHE UPDATE
+    // ========================================================
 
     await localUser.update({
       companyName:
@@ -127,124 +271,252 @@ async function verifyLocalLicense(localUser) {
     });
 
     // ========================================================
-    // 3. MUDDAT TEKSHIRISH
+    // EXPIRATION CHECK
     // ========================================================
 
-    const expiresAt = new Date(
-      result.license.expiresAt
-    );
+    const expiresAt =
+      new Date(
+        result.license.expiresAt
+      );
 
     if (
-      Number.isNaN(expiresAt.getTime()) ||
-      expiresAt.getTime() <= Date.now()
-    ) {
-      await localUser.update({
-        licenseStatus: 'expired',
-      });
-
-      return {
-        allowed: false,
-        online: true,
-        code: 'LICENSE_EXPIRED',
-        message:
-          'Litsenziya muddati tugagan',
-      };
-    }
-
-    // ========================================================
-    // 4. STATUS TEKSHIRISH
-    // ========================================================
-
-    if (
-      result.license.status !== 'active'
+      Number.isNaN(
+        expiresAt.getTime()
+      )
     ) {
       await localUser.update({
         licenseStatus:
-          result.license.status || 'inactive',
+          "expired",
       });
 
       return {
         allowed: false,
+
         online: true,
-        code: 'LICENSE_INACTIVE',
+
+        code:
+          "LICENSE_EXPIRED",
+
         message:
-          'Litsenziya faol emas',
+          "Litsenziya muddati noto‘g‘ri",
+      };
+    }
+
+    if (
+      expiresAt.getTime() <=
+      Date.now()
+    ) {
+      await localUser.update({
+        licenseStatus:
+          "expired",
+      });
+
+      return {
+        allowed: false,
+
+        online: true,
+
+        code:
+          "LICENSE_EXPIRED",
+
+        message:
+          "Litsenziya muddati tugagan",
       };
     }
 
     // ========================================================
-    // 5. HAMMASI JOYIDA
+    // LICENSE STATUS
     // ========================================================
 
-    return {
-      allowed: true,
-      online: true,
-      license: result.license,
-    };
+    if (
+      result.license.status !==
+      "active"
+    ) {
+      await localUser.update({
+        licenseStatus:
+          result.license.status ||
+          "inactive",
+      });
 
-  } catch (onlineError) {
+      return {
+        allowed: false,
+
+        online: true,
+
+        code:
+          "LICENSE_INACTIVE",
+
+        message:
+          "Litsenziya faol emas",
+      };
+    }
+
     // ========================================================
-    // FAQAT NETWORK/API ULANISH MUAMMOSIDA OFFLINE
+    // EVERYTHING OK
     // ========================================================
 
     console.log(
-      'ADMIN API OFFLINE:',
-      onlineError.message
+      "[LICENSE] ACTIVE - access allowed"
+    );
+
+    return {
+      allowed: true,
+
+      online: true,
+
+      license:
+        result.license,
+    };
+  } catch (onlineError) {
+    // ========================================================
+    // FAQAT HAQIQIY NETWORK ERROR
+    //
+    // Serverdan 403/401/500 kelgan holat bu yerga
+    // kelmaydi. Ular yuqoridagi response orqali ishlanadi.
+    // ========================================================
+
+    console.error(
+      "[LICENSE] Admin API connection error:",
+      onlineError
+    );
+
+    console.warn(
+      "[LICENSE] Switching to OFFLINE mode"
     );
   }
 
   // ==========================================================
-  // 6. OFFLINE — LOCAL LICENSE TEKSHIRISH
+  // 2. OFFLINE LICENSE
   //
   // Bu qism faqat Admin API'ga umuman ulanib bo'lmaganda
   // ishlaydi.
   // ==========================================================
 
-  if (!localUser.licenseExpiresAt) {
-    return {
-      allowed: false,
-      online: false,
-      code: 'LICENSE_NOT_FOUND',
-      message:
-        'Litsenziya maʼlumoti topilmadi',
-    };
-  }
-
-  const expiresAt = new Date(
-    localUser.licenseExpiresAt
+  console.log(
+    "[LICENSE] OFFLINE CHECK"
   );
 
+  // ----------------------------------------------------------
+  // LICENSE DATA EXISTS?
+  // ----------------------------------------------------------
+
   if (
-    Number.isNaN(expiresAt.getTime()) ||
-    expiresAt.getTime() <= Date.now()
+    !localUser.licenseExpiresAt
   ) {
     return {
       allowed: false,
+
       online: false,
-      code: 'LICENSE_EXPIRED',
+
+      code:
+        "LICENSE_NOT_FOUND",
+
       message:
-        'Litsenziya muddati tugagan',
+        "Litsenziya maʼlumoti topilmadi",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // EXPIRATION
+  // ----------------------------------------------------------
+
+  const expiresAt =
+    new Date(
+      localUser.licenseExpiresAt
+    );
+
+  if (
+    Number.isNaN(
+      expiresAt.getTime()
+    )
+  ) {
+    return {
+      allowed: false,
+
+      online: false,
+
+      code:
+        "LICENSE_EXPIRED",
+
+      message:
+        "Litsenziya muddati noto‘g‘ri",
     };
   }
 
   if (
-    localUser.licenseStatus !== 'active'
+    expiresAt.getTime() <=
+    Date.now()
   ) {
     return {
       allowed: false,
+
       online: false,
-      code: 'LICENSE_INACTIVE',
+
+      code:
+        "LICENSE_EXPIRED",
+
       message:
-        'Litsenziya faol emas',
+        "Litsenziya muddati tugagan",
     };
   }
+
+  // ----------------------------------------------------------
+  // BLOCKED / INACTIVE
+  //
+  // Lokal bazada ham blocked bo'lsa, offline rejimda ham
+  // login berilmaydi.
+  // ----------------------------------------------------------
+
+  if (
+    localUser.licenseStatus ===
+      "blocked"
+  ) {
+    return {
+      allowed: false,
+
+      online: false,
+
+      code:
+        "LICENSE_BLOCKED",
+
+      message:
+        "Litsenziya bloklangan",
+    };
+  }
+
+  if (
+    localUser.licenseStatus !==
+    "active"
+  ) {
+    return {
+      allowed: false,
+
+      online: false,
+
+      code:
+        "LICENSE_INACTIVE",
+
+      message:
+        "Litsenziya faol emas",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // OFFLINE ACCESS
+  // ----------------------------------------------------------
+
+  console.log(
+    "[LICENSE] OFFLINE ACTIVE - access allowed"
+  );
 
   return {
     allowed: true,
+
     online: false,
 
     license: {
-      id: localUser.licenseId,
+      id:
+        localUser.licenseId,
 
       startsAt:
         localUser.licenseStartsAt,
@@ -479,11 +751,6 @@ return res.status(201).json({
     });
   }
 });
-
-
-// ============================================================
-// 3. KEYINGI KIRISHLAR — FAQAT PIN
-// ============================================================
 
 // ============================================================
 // 3. KEYINGI KIRISHLAR — FAQAT PIN

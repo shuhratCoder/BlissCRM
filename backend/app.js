@@ -20,7 +20,11 @@ fs.mkdirSync(dataDir, {
 
 // ============================================================
 // JWT SECRET
-// .env bo'lmasa avtomatik yaratiladi
+//
+// .env mavjud bo'lmasa:
+// 1. AppData ichidan oldingi secret o'qiladi
+// 2. Topilmasa yangi secret yaratiladi
+// 3. Secret AppData ichiga saqlanadi
 // ============================================================
 
 const jwtSecretPath = path.join(
@@ -52,12 +56,18 @@ if (!process.env.JWT_SECRET) {
 }
 
 // ============================================================
-// CLOUD ADMIN API
+// ADMIN CRM API
+//
+// Desktop CRM doim shu server bilan license tekshiradi.
+// .env bo'lmasa ham ishlaydi.
 // ============================================================
 
-process.env.ADMIN_API_URL =
+const ADMIN_API_URL =
   process.env.ADMIN_API_URL ||
   "https://blissmebel.uz/api";
+
+process.env.ADMIN_API_URL =
+  ADMIN_API_URL;
 
 // ============================================================
 // MODULES
@@ -71,7 +81,10 @@ const cors = require("cors");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 
+// ============================================================
 // ROUTES
+// ============================================================
+
 const localAuthRoutes = require("./routes/localAuth");
 const productRoutes = require("./routes/products");
 const clientRoutes = require("./routes/clients");
@@ -84,8 +97,16 @@ const {
   createBackup,
 } = require("./services/backupService");
 
+// ============================================================
+// MODELS
+// ============================================================
+
 require("./models");
 require("./models/localUser");
+
+// ============================================================
+// APP
+// ============================================================
 
 const app = express();
 
@@ -121,26 +142,40 @@ app.use(limiter);
 // ============================================================
 
 app.use("/crm", productRoutes);
+
 app.use("/crm", localAuthRoutes);
+
 app.use("/crm", clientRoutes);
+
 app.use("/crm", orderRoutes);
+
 app.use("/crm", paymentRoutes);
+
 app.use("/crm", backupRoutes);
+
 app.use("/crm", printerRoutes);
 
 // ============================================================
 // ERROR HANDLER
 // ============================================================
 
-app.use((err, req, res, next) => {
-  console.error(err);
+app.use(
+  (err, req, res, next) => {
+    console.error(
+      "[BACKEND ERROR]",
+      err
+    );
 
-  res.status(err.status || 500).json({
-    success: false,
-    message:
-      err.message || "Server Error",
-  });
-});
+    res.status(
+      err.status || 500
+    ).json({
+      success: false,
+      message:
+        err.message ||
+        "Server Error",
+    });
+  }
+);
 
 // ============================================================
 // START
@@ -148,28 +183,76 @@ app.use((err, req, res, next) => {
 
 async function start() {
   try {
+    console.log(
+      "========================================"
+    );
+
+    console.log(
+      "[BLISS CRM] Starting..."
+    );
+
+    console.log(
+      "[BLISS CRM] Data directory:",
+      dataDir
+    );
+
+    console.log(
+      "[BLISS CRM] Admin API:",
+      ADMIN_API_URL
+    );
+
+    console.log(
+      "[BLISS CRM] JWT secret:",
+      process.env.JWT_SECRET
+        ? "READY"
+        : "MISSING"
+    );
+
+    console.log(
+      "========================================"
+    );
+
     await sequelize.authenticate();
+
+    console.log(
+      "[DATABASE] Connected"
+    );
 
     await sequelize.sync();
 
     console.log(
-      "Database connected successfully"
+      "[DATABASE] Synced"
     );
 
-    await createBackup();
-
-    app.listen(PORT, () => {
-      console.log(
-        `Server is running on port ${PORT}`
-      );
+    try {
+      await createBackup();
 
       console.log(
-        `Admin API: ${process.env.ADMIN_API_URL}`
+        "[BACKUP] Created"
       );
-    });
+    } catch (backupError) {
+      console.error(
+        "[BACKUP] Failed:",
+        backupError.message
+      );
+    }
+
+    app.listen(
+      PORT,
+      "127.0.0.1",
+      () => {
+        console.log(
+          `[SERVER] Running on http://127.0.0.1:${PORT}`
+        );
+
+        console.log(
+          `[LICENSE] Admin API: ${ADMIN_API_URL}`
+        );
+      }
+    );
   } catch (error) {
     console.error(
-      "Unable to connect to the database:",
+      "[SERVER] Startup failed:",
       error
     );
 
