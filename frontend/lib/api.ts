@@ -904,3 +904,138 @@ export function safeFormatDateTime(
     ? value
     : formatDateTime(date)
 }
+// ============================================================
+// SMS / ESKIZ
+// ============================================================
+
+export interface SmsSettingsResponse {
+  success: boolean
+
+  settings: {
+    eskizLogin: string
+    hasPassword: boolean
+    smsTemplate: string
+  }
+}
+
+export interface SaveSmsSettingsRequest {
+  eskizLogin: string
+  eskizPassword?: string
+  smsTemplate: string
+}
+
+export interface SaveSmsSettingsResponse {
+  success: boolean
+  message: string
+
+  settings: {
+    eskizLogin: string
+    hasPassword: boolean
+    smsTemplate: string
+  }
+}
+
+export interface SmsTestResponse {
+  success: boolean
+  message: string
+}
+
+export interface SmsBalanceResponse {
+  success: boolean
+  balance: number
+}
+
+export interface SendSmsMessage {
+  user_sms_id: string
+  to: number
+  text: string
+}
+
+export interface SendSmsResponse {
+  success: boolean
+  message: string
+  result?: unknown
+}
+
+// ------------------------------------------------------------
+// GET SMS SETTINGS
+// ------------------------------------------------------------
+
+export async function getSmsSettings(): Promise<SmsSettingsResponse> {
+  return crmApi.get<SmsSettingsResponse>(
+    '/sms/settings',
+  )
+}
+
+// ------------------------------------------------------------
+// SAVE SMS SETTINGS
+// ------------------------------------------------------------
+
+export async function saveSmsSettings(
+  data: SaveSmsSettingsRequest,
+): Promise<SaveSmsSettingsResponse> {
+  return crmApi.put<SaveSmsSettingsResponse>(
+    '/sms/settings',
+    data,
+  )
+}
+
+// ------------------------------------------------------------
+// TEST ESKIZ
+// ------------------------------------------------------------
+
+export async function testEskiz(
+  eskizLogin: string,
+  eskizPassword?: string,
+): Promise<SmsTestResponse> {
+  return crmApi.post<SmsTestResponse>(
+    '/sms/test',
+    {
+      eskizLogin,
+      ...(eskizPassword
+        ? {
+            eskizPassword,
+          }
+        : {}),
+    },
+  )
+}
+
+// ------------------------------------------------------------
+// GET ESKIZ BALANCE
+// ------------------------------------------------------------
+
+export async function getSmsBalance(): Promise<SmsBalanceResponse> {
+  return crmApi.get<SmsBalanceResponse>(
+    '/sms/balance',
+  )
+}
+
+// ------------------------------------------------------------
+// SEND SMS
+// ------------------------------------------------------------
+
+export async function sendSmsMessages(
+  messages: SendSmsMessage[],
+): Promise<SendSmsResponse> {
+  return crmApi.post<SendSmsResponse>(
+    '/sms/send',
+    {
+      messages,
+    },
+  )
+}
+
+// ------------------------------------------------------------
+// CLEAR SMS SETTINGS
+// ------------------------------------------------------------
+
+export async function clearSmsSettings(): Promise<{
+  success: boolean
+  message: string
+}> {
+  return crmApi.delete<{
+    success: boolean
+    message: string
+  }>('/sms/settings')
+}

@@ -1,369 +1,1443 @@
 'use client'
-// app/sms/page.tsx — Bulk SMS send (read-only template) via Eskiz
 
 import React from 'react'
-import { Send, MessageSquare, CheckCircle2, Wallet, AlertTriangle } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
-import { useClients } from '@/hooks'
-import { useUIStore, useEskizStore } from '@/store'
-import { useT } from '@/lib/i18n'
-import { formatCurrency, formatPhone } from '@/lib/api'
 
-// SMS messages are always in Uzbek, so the currency word is fixed regardless
-// of the admin's UI language (which can be RU → "сум").
-function formatCurrencyUz(amount: number): string {
-  return (
-    new Intl.NumberFormat('uz-UZ', {
-      style: 'decimal',
-      maximumFractionDigits: 0,
-    }).format(amount) + " so'm"
-  )
-}
 import {
-  sendBatchSms,
-  getBalance,
-  normalizeUzPhone,
-  ensureFreshToken,
-  ensureToken,
-  type BatchMessage,
-} from '@/lib/eskiz'
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  MessageSquare,
+  RefreshCw,
+  Save,
+  Send,
+  Settings,
+  Wallet,
+  X,
+} from 'lucide-react'
+
+import { useClients } from '@/hooks'
+
+import {
+  useUIStore,
+} from '@/store'
+
+import {
+  formatCurrency,
+  formatPhone,
+
+  getSmsSettings,
+  saveSmsSettings,
+  testEskiz,
+  getSmsBalance,
+  sendSmsMessages,
+
+  type SendSmsMessage,
+} from '@/lib/api'
+
 import {
   Button,
   PageHeader,
   EmptyState,
   Skeleton,
 } from '@/components/ui'
+
 import type { Client } from '@/types'
+
 import { cn } from '@/lib/utils'
 
-function renderTemplateLabels(tpl: string): React.ReactNode[] {
-  const parts = tpl.split(/(\{name\}|\{duty\})/g)
-  return parts.map((part, i) => {
-    if (part === '{name}') {
-      return (
-        <strong key={i} className="font-bold text-gray-900">
-          {'{mijozning ismi}'}
-        </strong>
-      )
-    }
-    if (part === '{duty}') {
-      return (
-        <strong key={i} className="font-bold text-gray-900">
-          {'{qarz miqdori}'}
-        </strong>
-      )
-    }
-    return <React.Fragment key={i}>{part}</React.Fragment>
-  })
+// ============================================================
+// HELPERS
+// ============================================================
+
+function formatCurrencyUz(
+  amount: number,
+): string {
+  return new Intl.NumberFormat(
+    'en-US',
+    {
+      maximumFractionDigits: 0,
+    },
+  )
+    .format(amount)
+    .replace(/,/g, ' ')
 }
 
+function normalizeUzPhone(
+  input:
+    | string
+    | null
+    | undefined,
+): string | null {
+  let digits = String(
+    input ?? '',
+  ).replace(/\D/g, '')
+
+  if (
+    digits.startsWith('998')
+  ) {
+    digits =
+      digits.slice(3)
+  }
+
+  if (
+    digits.length !== 9
+  ) {
+    return null
+  }
+
+  return `998${digits}`
+}
+
+function renderSmsText(
+  template: string,
+  client: Client,
+): string {
+  const debt =
+    client.totalDebt ?? 0
+
+  return template
+    .replace(
+      /\{name\}/g,
+      client.name ?? '',
+    )
+    .replace(
+      /\{duty\}/g,
+      formatCurrencyUz(
+        debt,
+      ),
+    )
+}
+
+// ============================================================
+// TEMPLATE PREVIEW
+// ============================================================
+
+function renderTemplatePreview(
+  template: string,
+): React.ReactNode[] {
+  const parts =
+    template.split(
+      /(\{name\}|\{duty\})/g,
+    )
+
+  return parts.map(
+    (part, index) => {
+      if (
+        part === '{name}'
+      ) {
+        return (
+          <strong
+            key={index}
+            className="font-semibold text-gray-900"
+          >
+            {'{mijozning ismi}'}
+          </strong>
+        )
+      }
+
+      if (
+        part === '{duty}'
+      ) {
+        return (
+          <strong
+            key={index}
+            className="font-semibold text-gray-900"
+          >
+            {'{qarz miqdori}'}
+          </strong>
+        )
+      }
+
+      return (
+        <React.Fragment
+          key={index}
+        >
+          {part}
+        </React.Fragment>
+      )
+    },
+  )
+}
+
+// ============================================================
+// MAIN PAGE
+// ============================================================
+
 export default function SmsPanelPage() {
-  const { t } = useT()
-  const { data: clients, isLoading } = useClients()
-  const addToast = useUIStore((s) => s.addToast)
-  const eskizToken = useEskizStore((s) => s.token)
+  const addToast =
+    useUIStore(
+      (state) =>
+        state.addToast,
+    )
 
-  const [sending, setSending] = React.useState(false)
-  const [authError, setAuthError] = React.useState<string | null>(null)
-  const [authBusy, setAuthBusy] = React.useState(false)
+  const {
+    data: clients,
+    isLoading,
+  } = useClients()
 
-  // On mount (and whenever the stored token is missing), perform a server-side
-  // env login via /api/eskiz/login. If we already have a token, proactively
-  // refresh it if it's near expiry. No login modal — creds live in env.
+  // ----------------------------------------------------------
+  // SMS SETTINGS
+  // ----------------------------------------------------------
+
+  const [
+    settingsOpen,
+    setSettingsOpen,
+  ] = React.useState(false)
+
+  const [
+    settingsLoading,
+    setSettingsLoading,
+  ] = React.useState(false)
+
+  const [
+    settingsSaving,
+    setSettingsSaving,
+  ] = React.useState(false)
+
+  const [
+    testingEskiz,
+    setTestingEskiz,
+  ] = React.useState(false)
+
+  const [
+    eskizLogin,
+    setEskizLogin,
+  ] = React.useState('')
+
+  const [
+    eskizPassword,
+    setEskizPassword,
+  ] = React.useState('')
+
+  const [
+    hasSavedPassword,
+    setHasSavedPassword,
+  ] = React.useState(false)
+
+  const [
+    showPassword,
+    setShowPassword,
+  ] = React.useState(false)
+
+  const [
+    smsTemplate,
+    setSmsTemplate,
+  ] = React.useState(
+    'Assalomu alaykum, {name}!\n\nSizning qarzingiz: {duty}.\n\nIltimos, to\'lovni amalga oshiring.',
+  )
+
+  // ----------------------------------------------------------
+  // ESKIZ STATUS
+  // ----------------------------------------------------------
+
+  const [
+    eskizConnected,
+    setEskizConnected,
+  ] = React.useState(false)
+
+  const [
+    balance,
+    setBalance,
+  ] = React.useState<
+    number | null
+  >(null)
+
+  const [
+    balanceLoading,
+    setBalanceLoading,
+  ] = React.useState(false)
+
+  // ----------------------------------------------------------
+  // SMS SEND
+  // ----------------------------------------------------------
+
+  const [
+    sending,
+    setSending,
+  ] = React.useState(false)
+
+  const [
+    selectedIds,
+    setSelectedIds,
+  ] = React.useState<
+    Set<string>
+  >(new Set())
+
+  // ==========================================================
+  // DEBTORS
+  // ==========================================================
+
+  const debtors =
+    React.useMemo(
+      () =>
+        (clients ?? []).filter(
+          (client) =>
+            (client.totalDebt ??
+              0) > 0,
+        ),
+      [clients],
+    )
+
+  // ==========================================================
+  // LOAD SMS SETTINGS
+  // ==========================================================
+
+  const loadSmsSettings =
+    React.useCallback(
+      async () => {
+        setSettingsLoading(
+          true,
+        )
+
+        try {
+          const response =
+            await getSmsSettings()
+
+          setEskizLogin(
+            response.settings
+              .eskizLogin ?? '',
+          )
+
+          setHasSavedPassword(
+            Boolean(
+              response.settings
+                .hasPassword,
+            ),
+          )
+
+          setSmsTemplate(
+            response.settings
+              .smsTemplate ??
+              '',
+          )
+        } catch (error) {
+          console.error(
+            'SMS SETTINGS LOAD ERROR:',
+            error,
+          )
+
+          addToast({
+            type: 'error',
+            title:
+              'SMS sozlamalarini olishda xatolik',
+          })
+        } finally {
+          setSettingsLoading(
+            false,
+          )
+        }
+      },
+      [addToast],
+    )
+
+  // ==========================================================
+  // OPEN SETTINGS
+  // ==========================================================
+
+  async function openSettings() {
+    setSettingsOpen(
+      true,
+    )
+
+    setEskizPassword('')
+
+    await loadSmsSettings()
+  }
+
+  // ==========================================================
+  // TEST ESKIZ
+  // ==========================================================
+
+  async function handleTestEskiz() {
+    if (
+      !eskizLogin.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Eskiz loginini kiriting',
+      })
+
+      return
+    }
+
+    if (
+      !eskizPassword.trim() &&
+      !hasSavedPassword
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Eskiz parolini kiriting',
+      })
+
+      return
+    }
+
+    setTestingEskiz(
+      true,
+    )
+
+    try {
+      const response =
+        await testEskiz(
+          eskizLogin.trim(),
+          eskizPassword.trim() ||
+            undefined,
+        )
+
+      if (
+        response.success
+      ) {
+        setEskizConnected(
+          true,
+        )
+
+        addToast({
+          type: 'success',
+          title:
+            'Eskiz akkaunti muvaffaqiyatli ulandi',
+        })
+
+        await loadBalance()
+      }
+    } catch (error) {
+      console.error(
+        'ESKIZ TEST ERROR:',
+        error,
+      )
+
+      setEskizConnected(
+        false,
+      )
+
+      addToast({
+        type: 'error',
+        title:
+          error instanceof Error
+            ? error.message
+            : 'Eskiz akkauntini tekshirishda xatolik',
+      })
+    } finally {
+      setTestingEskiz(
+        false,
+      )
+    }
+  }
+
+  // ==========================================================
+  // SAVE SETTINGS
+  // ==========================================================
+
+  async function handleSaveSettings() {
+    if (
+      !eskizLogin.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Eskiz loginini kiriting',
+      })
+
+      return
+    }
+
+    if (
+      !smsTemplate.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'SMS matnini kiriting',
+      })
+
+      return
+    }
+
+    if (
+      !hasSavedPassword &&
+      !eskizPassword.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Eskiz parolini kiriting',
+      })
+
+      return
+    }
+
+    setSettingsSaving(
+      true,
+    )
+
+    try {
+      const response =
+        await saveSmsSettings({
+          eskizLogin:
+            eskizLogin.trim(),
+
+          ...(eskizPassword.trim()
+            ? {
+                eskizPassword:
+                  eskizPassword.trim(),
+              }
+            : {}),
+
+          smsTemplate:
+            smsTemplate.trim(),
+        })
+
+      setHasSavedPassword(
+        response.settings
+          .hasPassword,
+      )
+
+      setEskizPassword('')
+
+      addToast({
+        type: 'success',
+        title:
+          'SMS sozlamalari saqlandi',
+      })
+
+      setSettingsOpen(
+        false,
+      )
+
+      setEskizConnected(
+        false,
+      )
+
+      await loadBalance()
+    } catch (error) {
+      console.error(
+        'SAVE SMS SETTINGS ERROR:',
+        error,
+      )
+
+      addToast({
+        type: 'error',
+        title:
+          error instanceof Error
+            ? error.message
+            : 'SMS sozlamalarini saqlashda xatolik',
+      })
+    } finally {
+      setSettingsSaving(
+        false,
+      )
+    }
+  }
+
+  // ==========================================================
+  // BALANCE
+  // ==========================================================
+
+  async function loadBalance() {
+    setBalanceLoading(
+      true,
+    )
+
+    try {
+      const response =
+        await getSmsBalance()
+
+      setBalance(
+        response.balance,
+      )
+
+      setEskizConnected(
+        true,
+      )
+    } catch (error) {
+      console.error(
+        'SMS BALANCE ERROR:',
+        error,
+      )
+
+      setEskizConnected(
+        false,
+      )
+
+      setBalance(null)
+    } finally {
+      setBalanceLoading(
+        false,
+      )
+    }
+  }
+
+  // ==========================================================
+  // LOAD INITIAL SETTINGS
+  // ==========================================================
+
   React.useEffect(() => {
-    let cancelled = false
+    let cancelled =
+      false
+
     async function bootstrap() {
       try {
-        if (eskizToken) {
-          await ensureFreshToken()
-        } else {
-          setAuthBusy(true)
-          await ensureToken()
+        const response =
+          await getSmsSettings()
+
+        if (
+          cancelled
+        ) {
+          return
         }
-        if (!cancelled) setAuthError(null)
-      } catch (e) {
-        if (!cancelled) {
-          setAuthError(e instanceof Error ? e.message : 'Eskiz auth failed')
+
+        setEskizLogin(
+          response.settings
+            .eskizLogin ?? '',
+        )
+
+        setHasSavedPassword(
+          Boolean(
+            response.settings
+              .hasPassword,
+          ),
+        )
+
+        setSmsTemplate(
+          response.settings
+            .smsTemplate ?? '',
+        )
+
+        if (
+          response.settings
+            .hasPassword &&
+          response.settings
+            .eskizLogin
+        ) {
+          loadBalance()
         }
-      } finally {
-        if (!cancelled) setAuthBusy(false)
+      } catch (error) {
+        console.error(
+          'SMS BOOTSTRAP ERROR:',
+          error,
+        )
       }
     }
+
     bootstrap()
+
     return () => {
       cancelled = true
     }
-  }, [eskizToken])
+  }, [])
 
-  // Balance — refetched on mount (page entry) and after each successful send.
-  const balanceQuery = useQuery({
-    queryKey: ['eskiz', 'balance'],
-    queryFn: getBalance,
-    enabled: !!eskizToken,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  })
+  // ==========================================================
+  // SELECT ALL
+  // ==========================================================
 
-  const getDebt = (c: Client) => c.totalDebt ?? 0
+  const allSelected =
+    debtors.length > 0 &&
+    selectedIds.size ===
+      debtors.length
 
-  const debtors = React.useMemo(
-    () => (clients ?? []).filter((c) => getDebt(c) > 0),
-    [clients],
-  )
-  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
-  const template = t('sms.defaultBulk')
+  function toggleAll() {
+    if (
+      allSelected
+    ) {
+      setSelectedIds(
+        new Set(),
+      )
 
-  const toggleAll = () => {
-    if (selectedIds.size === debtors.length) setSelectedIds(new Set())
-    else setSelectedIds(new Set(debtors.map((c) => c.id)))
+      return
+    }
+
+    setSelectedIds(
+      new Set(
+        debtors.map(
+          (client) =>
+            client.id,
+        ),
+      ),
+    )
   }
 
-  const renderMessageFor = (c: Client): string =>
-    template
-      .replace(/\{name\}/g, c.name ?? '')
-      .replace(/\{duty\}/g, formatCurrencyUz(getDebt(c)))
+  // ==========================================================
+  // SEND SMS
+  // ==========================================================
 
-  const handleBulkSend = async () => {
-    if (selectedIds.size === 0) {
-      addToast({ type: 'warning', title: t('toast.chooseRecipients') })
-      return
-    }
-    if (!eskizToken) {
-      // No token yet — try one more env login before giving up.
-      try {
-        await ensureToken()
-      } catch (e) {
-        setAuthError(e instanceof Error ? e.message : 'Eskiz auth failed')
-        return
-      }
-    }
-
-    const selected = debtors.filter((c) => selectedIds.has(c.id))
-    const messages: BatchMessage[] = []
-    let skipped = 0
-
-    selected.forEach((c) => {
-      const norm = normalizeUzPhone(c.phone)
-      if (!norm) {
-        skipped++
-        return
-      }
-      messages.push({
-        user_sms_id: `sms${messages.length + 1}`,
-        to: Number(norm),
-        text: renderMessageFor(c),
-      })
-    })
-
-    if (messages.length === 0) {
-      addToast({ type: 'warning', title: t('toast.noValidPhones') })
-      return
-    }
-    if (skipped > 0) {
+  async function handleSendSms() {
+    if (
+      selectedIds.size === 0
+    ) {
       addToast({
         type: 'warning',
-        title: t('toast.skippedInvalidPhones', { n: skipped }),
+        title:
+          'Kamida bitta mijozni tanlang',
+      })
+
+      return
+    }
+
+    if (
+      !hasSavedPassword
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Avval Eskiz akkauntini sozlang',
+      })
+
+      setSettingsOpen(
+        true,
+      )
+
+      return
+    }
+
+    if (
+      !smsTemplate.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'SMS matni kiritilmagan',
+      })
+
+      return
+    }
+
+    const selected =
+      debtors.filter(
+        (client) =>
+          selectedIds.has(
+            client.id,
+          ),
+      )
+
+    const messages: SendSmsMessage[] =
+      []
+
+    let skipped = 0
+
+    selected.forEach(
+      (
+        client,
+        index,
+      ) => {
+        const phone =
+          normalizeUzPhone(
+            client.phone,
+          )
+
+        if (!phone) {
+          skipped++
+          return
+        }
+
+        messages.push({
+  user_sms_id: `sms${index + 1}`,
+  to: Number(phone),
+  text: renderSmsText(smsTemplate, client),
+})
+      },
+    )
+
+    if (
+      messages.length === 0
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Yaroqli telefon raqamlari topilmadi',
+      })
+
+      return
+    }
+
+    if (
+      skipped > 0
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          `${skipped} ta mijozda telefon raqami noto'g'ri`,
       })
     }
 
     setSending(true)
+
     try {
-      await sendBatchSms(messages)
+      await sendSmsMessages(
+        messages,
+      )
+
       addToast({
         type: 'success',
-        title: t('toast.smsSentN', { n: messages.length }),
-        message: t('toast.debtorsWillReceive'),
+        title:
+          `${messages.length} ta SMS yuborildi`,
       })
-      setSelectedIds(new Set())
-      // Balance changes after a successful batch — pull the new value.
-      balanceQuery.refetch()
-    } catch (err: unknown) {
-      const status =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined
-      // 401s are handled inside the axios interceptor (refresh → env-login →
-      // retry). Anything else is a real failure and worth surfacing.
-      if (status !== 401) {
-        addToast({ type: 'error', title: t('errors.generic') })
-      }
+
+      setSelectedIds(
+        new Set(),
+      )
+
+      await loadBalance()
+    } catch (error) {
+      console.error(
+        'SEND SMS ERROR:',
+        error,
+      )
+
+      addToast({
+        type: 'error',
+        title:
+          error instanceof Error
+            ? error.message
+            : 'SMS yuborishda xatolik',
+      })
     } finally {
       setSending(false)
     }
   }
 
-  return (
-    <div className="space-y-5 max-w-5xl">
-      <PageHeader
-        title={t('sms.title')}
-        description={t('sms.desc')}
-        actions={
-          eskizToken ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-2 py-1">
-                <CheckCircle2 size={12} /> {t('eskiz.connected')}
-              </span>
-              <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-md px-2 py-1">
-                <Wallet size={12} />
-                {t('eskiz.balance')}:{' '}
-                <strong>
-                  {balanceQuery.isLoading
-                    ? '...'
-                    : balanceQuery.data != null
-                      ? formatCurrency(balanceQuery.data)
-                      : '—'}
-                </strong>
-              </span>
-            </div>
-          ) : null
-        }
-      />
-
-      {authError && (
-        <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>{authError}</span>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="p-5">
-          <BulkPanel
-            isLoading={isLoading}
-            debtors={debtors}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            toggleAll={toggleAll}
-            template={template}
-            onSend={handleBulkSend}
-            getDebt={getDebt}
-            sending={sending}
-            disabled={!eskizToken || authBusy}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Bulk panel ───────────────────────────────────────────────
-function BulkPanel({
-  isLoading,
-  debtors,
-  selectedIds,
-  setSelectedIds,
-  toggleAll,
-  template,
-  onSend,
-  getDebt,
-  sending,
-  disabled,
-}: {
-  isLoading: boolean
-  debtors: Client[]
-  selectedIds: Set<string>
-  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>
-  toggleAll: () => void
-  template: string
-  onSend: () => void
-  getDebt: (c: Client) => number
-  sending: boolean
-  disabled: boolean
-}) {
-  const { t } = useT()
-  const allSelected = debtors.length > 0 && selectedIds.size === debtors.length
+  // ==========================================================
+  // RENDER
+  // ==========================================================
 
   return (
-    <div className="grid md:grid-cols-2 gap-5">
-      {/* Recipients */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-700">
-            {t('sms.debtorsHeader', { n: debtors.length })}
-          </h3>
-          {debtors.length > 0 && (
-            <button
-              onClick={toggleAll}
-              className="text-xs text-blue-600 hover:underline"
-            >
-              {allSelected ? t('sms.deselectAll') : t('sms.selectAll')}
-            </button>
-          )}
-        </div>
-        <div className="border border-gray-100 rounded-lg max-h-80 overflow-y-auto divide-y divide-gray-50">
-          {isLoading && (
-            <div className="p-3 space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
-          )}
-          {!isLoading && debtors.length === 0 && (
-            <EmptyState
-              icon={<MessageSquare size={28} />}
-              title={t('sms.noDebtors')}
-              description={t('sms.noDebtorsDesc')}
-            />
-          )}
-          {!isLoading &&
-            debtors.map((c) => {
-              const checked = selectedIds.has(c.id)
-              return (
-                <label
-                  key={c.id}
+    <>
+      <div className="space-y-5 max-w-6xl">
+        {/* ================================================== */}
+        {/* HEADER */}
+        {/* ================================================== */}
+
+        <PageHeader
+          title="SMS"
+          description="Mijozlarga SMS xabar yuborish"
+          actions={
+            <div className="flex items-center gap-2">
+              {hasSavedPassword && (
+                <div
                   className={cn(
-                    'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors',
-                    checked && 'bg-blue-50',
+                    'inline-flex items-center gap-1.5',
+                    'rounded-md border px-2.5 py-1.5',
+                    'text-xs',
+                    eskizConnected
+                      ? 'border-green-100 bg-green-50 text-green-700'
+                      : 'border-gray-100 bg-gray-50 text-gray-500',
                   )}
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev)
-                        if (e.target.checked) next.add(c.id)
-                        else next.delete(c.id)
-                        return next
-                      })
-                    }}
-                    className="rounded"
+                  {eskizConnected ? (
+                    <>
+                      <CheckCircle2
+                        size={13}
+                      />
+                      Eskiz ulangan
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle
+                        size={13}
+                      />
+                      Eskiz tekshirilmagan
+                    </>
+                  )}
+                </div>
+              )}
+
+              {balance !==
+                null && (
+                <div className="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700">
+                  <Wallet
+                    size={13}
                   />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-800 truncate">
-                      {c.name}
-                    </p>
-                    <p className="text-[11px] text-gray-400">{formatPhone(c.phone)}</p>
+
+                  Balans:{' '}
+
+                  <strong>
+                    {formatCurrency(
+                      balance,
+                    )}
+                  </strong>
+                </div>
+              )}
+
+              <Button
+                variant="secondary"
+                onClick={
+                  openSettings
+                }
+              >
+                <Settings
+                  size={15}
+                />
+
+                SMS sozlamalari
+              </Button>
+            </div>
+          }
+        />
+
+        {/* ================================================== */}
+        {/* SMS PANEL */}
+        {/* ================================================== */}
+
+        <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
+          <div className="p-5">
+            <div className="grid gap-5 md:grid-cols-2">
+              {/* ============================================ */}
+              {/* CLIENTS */}
+              {/* ============================================ */}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    Qarzdor mijozlar
+                    {' '}
+                    <span className="text-gray-400">
+                      ({debtors.length})
+                    </span>
+                  </h3>
+
+                  {debtors.length >
+                    0 && (
+                    <button
+                      type="button"
+                      onClick={
+                        toggleAll
+                      }
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      {allSelected
+                        ? 'Barchasini bekor qilish'
+                        : 'Barchasini tanlash'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-96 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
+                  {isLoading && (
+                    <div className="space-y-2 p-3">
+                      {Array.from(
+                        {
+                          length: 5,
+                        },
+                      ).map(
+                        (
+                          _,
+                          index,
+                        ) => (
+                          <Skeleton
+                            key={
+                              index
+                            }
+                            className="h-11"
+                          />
+                        ),
+                      )}
+                    </div>
+                  )}
+
+                  {!isLoading &&
+                    debtors.length ===
+                      0 && (
+                      <EmptyState
+                        icon={
+                          <MessageSquare
+                            size={
+                              28
+                            }
+                          />
+                        }
+                        title="Qarzdor mijozlar yo'q"
+                        description="Hozircha SMS yuborish uchun qarzdor mijoz mavjud emas."
+                      />
+                    )}
+
+                  {!isLoading &&
+                    debtors.map(
+                      (
+                        client,
+                      ) => {
+                        const checked =
+                          selectedIds.has(
+                            client.id,
+                          )
+
+                        return (
+                          <label
+                            key={
+                              client.id
+                            }
+                            className={cn(
+                              'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors',
+                              'hover:bg-gray-50',
+                              checked &&
+                                'bg-blue-50',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                checked
+                              }
+                              onChange={(
+                                event,
+                              ) => {
+                                setSelectedIds(
+                                  (
+                                    previous,
+                                  ) => {
+                                    const next =
+                                      new Set(
+                                        previous,
+                                      )
+
+                                    if (
+                                      event
+                                        .target
+                                        .checked
+                                    ) {
+                                      next.add(
+                                        client.id,
+                                      )
+                                    } else {
+                                      next.delete(
+                                        client.id,
+                                      )
+                                    }
+
+                                    return next
+                                  },
+                                )
+                              }}
+                              className="rounded"
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium text-gray-800">
+                                {
+                                  client.name
+                                }
+                              </p>
+
+                              <p className="text-[11px] text-gray-400">
+                                {formatPhone(
+                                  client.phone,
+                                )}
+                              </p>
+                            </div>
+
+                            <span className="shrink-0 text-xs font-semibold text-red-500">
+                              {formatCurrency(
+                                client.totalDebt ??
+                                  0,
+                              )}
+                            </span>
+                          </label>
+                        )
+                      },
+                    )}
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  Tanlangan:
+                  {' '}
+                  <strong>
+                    {
+                      selectedIds.size
+                    }
+                  </strong>
+                </p>
+              </div>
+
+              {/* ============================================ */}
+              {/* MESSAGE */}
+              {/* ============================================ */}
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    SMS matni
+                  </h3>
+
+                  <button
+                    type="button"
+                    onClick={
+                      openSettings
+                    }
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    O'zgartirish
+                  </button>
+                </div>
+
+                <div className="min-h-36 whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700">
+                  {smsTemplate ? (
+                    renderTemplatePreview(
+                      smsTemplate,
+                    )
+                  ) : (
+                    <span className="text-gray-400">
+                      SMS matni
+                      sozlanmagan
+                    </span>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700">
+                  <p className="font-semibold mb-1">
+                    Avtomatik almashtiriladi:
+                  </p>
+
+                  <p>
+                    <strong>
+                      {'{name}'}
+                    </strong>
+                    {' '}
+                    → mijozning
+                    ismi
+                  </p>
+
+                  <p>
+                    <strong>
+                      {'{duty}'}
+                    </strong>
+                    {' '}
+                    → mijozning
+                    qarzi
+                  </p>
+                </div>
+
+                <Button
+                  onClick={
+                    handleSendSms
+                  }
+                  className="w-full"
+                  disabled={
+                    selectedIds.size ===
+                      0 ||
+                    sending ||
+                    !hasSavedPassword
+                  }
+                  loading={
+                    sending
+                  }
+                >
+                  <Send
+                    size={15}
+                  />
+
+                  SMS yuborish
+                  {' '}
+                  {selectedIds.size >
+                    0 &&
+                    `(${selectedIds.size})`}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ==================================================== */}
+      {/* SETTINGS MODAL */}
+      {/* ==================================================== */}
+
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+            {/* ============================================== */}
+            {/* MODAL HEADER */}
+            {/* ============================================== */}
+
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  SMS sozlamalari
+                </h2>
+
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Eskiz akkaunti va SMS
+                  matnini sozlang
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSettingsOpen(
+                    false,
+                  )
+                }
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X
+                  size={18}
+                />
+              </button>
+            </div>
+
+            {/* ============================================== */}
+            {/* MODAL BODY */}
+            {/* ============================================== */}
+
+            <div className="space-y-5 p-5">
+              {settingsLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-10" />
+                  <Skeleton className="h-10" />
+                  <Skeleton className="h-32" />
+                </div>
+              ) : (
+                <>
+                  {/* ======================================== */}
+                  {/* ESKIZ LOGIN */}
+                  {/* ======================================== */}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                      Eskiz login
+                    </label>
+
+                    <input
+                      type="email"
+                      value={
+                        eskizLogin
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        setEskizLogin(
+                          event
+                            .target
+                            .value,
+                        )
+                      }
+                      placeholder="Eskiz login / email"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
                   </div>
-                  <span className="text-[11px] text-red-500 font-medium shrink-0">
-                    {formatCurrency(getDebt(c))}
-                  </span>
-                </label>
-              )
-            })}
+
+                  {/* ======================================== */}
+                  {/* ESKIZ PASSWORD */}
+                  {/* ======================================== */}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                      Eskiz parol
+                    </label>
+
+                    <div className="relative">
+                      <input
+                        type={
+                          showPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={
+                          eskizPassword
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setEskizPassword(
+                            event
+                              .target
+                              .value,
+                          )
+                        }
+                        placeholder={
+                          hasSavedPassword
+                            ? 'Saqlangan parolni o‘zgartirish uchun kiriting'
+                            : 'Eskiz paroli'
+                        }
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowPassword(
+                            (
+                              value,
+                            ) =>
+                              !value,
+                          )
+                        }
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      >
+                        {showPassword ? (
+                          <EyeOff
+                            size={
+                              16
+                            }
+                          />
+                        ) : (
+                          <Eye
+                            size={
+                              16
+                            }
+                          />
+                        )}
+                      </button>
+                    </div>
+
+                    {hasSavedPassword && (
+                      <p className="mt-1.5 text-[11px] text-green-600">
+                        ✓ Eskiz paroli
+                        saqlangan
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ======================================== */}
+                  {/* SMS TEMPLATE */}
+                  {/* ======================================== */}
+
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <label className="text-xs font-medium text-gray-700">
+                        SMS matni
+                      </label>
+
+                      <span className="text-[11px] text-gray-400">
+                        {smsTemplate.length}{' '}
+                        belgi
+                      </span>
+                    </div>
+
+                    <textarea
+                      value={
+                        smsTemplate
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        setSmsTemplate(
+                          event
+                            .target
+                            .value,
+                        )
+                      }
+                      rows={6}
+                      placeholder={`Masalan:
+
+Assalomu alaykum, {name}!
+
+Sizning qarzingiz: {duty}.
+
+Iltimos, to'lovni amalga oshiring.`}
+                      className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+
+                    <div className="mt-2 rounded-lg bg-gray-50 p-3 text-[11px] text-gray-600">
+                      <p className="font-semibold text-gray-700">
+                        Placeholderlar:
+                      </p>
+
+                      <p>
+                        <code className="rounded bg-white px-1 py-0.5">
+                          {'{name}'}
+                        </code>
+                        {' '}
+                        — mijoz
+                        ismi
+                      </p>
+
+                      <p>
+                        <code className="rounded bg-white px-1 py-0.5">
+                          {'{duty}'}
+                        </code>
+                        {' '}
+                        — qarz
+                        miqdori
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ======================================== */}
+                  {/* TEST */}
+                  {/* ======================================== */}
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleTestEskiz
+                    }
+                    disabled={
+                      testingEskiz ||
+                      !eskizLogin.trim()
+                    }
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      size={15}
+                      className={
+                        testingEskiz
+                          ? 'animate-spin'
+                          : ''
+                      }
+                    />
+
+                    {testingEskiz
+                      ? 'Tekshirilmoqda...'
+                      : 'Eskiz akkauntini tekshirish'}
+                  </button>
+
+                  {eskizConnected && (
+                    <div className="flex items-center gap-2 rounded-lg border border-green-100 bg-green-50 px-3 py-2.5 text-xs text-green-700">
+                      <CheckCircle2
+                        size={15}
+                      />
+
+                      Eskiz akkaunti
+                      muvaffaqiyatli
+                      ulandi
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ============================================== */}
+            {/* MODAL FOOTER */}
+            {/* ============================================== */}
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  setSettingsOpen(
+                    false,
+                  )
+                }
+                disabled={
+                  settingsSaving
+                }
+              >
+                Bekor qilish
+              </Button>
+
+              <Button
+                onClick={
+                  handleSaveSettings
+                }
+                disabled={
+                  settingsLoading ||
+                  settingsSaving
+                }
+                loading={
+                  settingsSaving
+                }
+              >
+                <Save
+                  size={15}
+                />
+
+                Saqlash
+              </Button>
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-gray-500">
-          {t('sms.selected')}: <strong>{selectedIds.size}</strong>
-        </p>
-      </div>
-
-      {/* Message preview (read-only, with placeholder labels) */}
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-gray-700">{t('sms.message')}</h3>
-
-        <div className="border border-gray-100 bg-gray-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-          {renderTemplateLabels(template)}
-        </div>
-
-        <Button
-          onClick={onSend}
-          className="w-full"
-          disabled={selectedIds.size === 0 || disabled}
-          loading={sending}
-        >
-          <Send size={14} /> {t('sms.sendN', { n: selectedIds.size })}
-        </Button>
-      </div>
-    </div>
+      )}
+    </>
   )
 }

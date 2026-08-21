@@ -92,7 +92,8 @@ const orderRoutes = require("./routes/orders");
 const paymentRoutes = require("./routes/payments");
 const backupRoutes = require("./routes/backups");
 const printerRoutes = require("./routes/printer");
-
+const smsRoutes =
+  require("./routes/sms");
 const {
   createBackup,
 } = require("./services/backupService");
@@ -154,7 +155,10 @@ app.use("/crm", paymentRoutes);
 app.use("/crm", backupRoutes);
 
 app.use("/crm", printerRoutes);
-
+app.use(
+  "/crm",
+  smsRoutes
+);
 // ============================================================
 // ERROR HANDLER
 // ============================================================

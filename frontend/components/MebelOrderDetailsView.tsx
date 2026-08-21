@@ -217,13 +217,33 @@ export function MebelOrderDetailsView({ order }: MebelOrderDetailsViewProps) {
           
           <table style="width: 100%; font-size: 10px;">
             <tr><td>To'langan:</td><td class="right">${paid.toLocaleString("uz-UZ")} so'm</td></tr>
-            ${
-              debt > 0
-                ? `
-              <tr class="bold" style="color: red;"><td>QARZ MIQDORI:</td><td class="right">${debt.toLocaleString("uz-UZ")} so'm</td></tr>
-              <tr style="color: red; font-size: 9px;"><td>MUDDATI:</td><td class="right">${deadlineStr}</td></tr>
-            `
-                : ""
+            ${debt > 0
+              ? `
+                <tr class="bold" style="color: #000; font-size: 11px;">
+                  <td style="font-weight: 900; padding-top: 2px;">
+                    QARZ MIQDORI:
+                  </td>
+                  <td
+                    class="right"
+                    style="font-weight: 900; padding-top: 2px;"
+                  >
+                    ${debt.toLocaleString("uz-UZ")} so'm
+                  </td>
+                </tr>
+
+                <tr style="color: #000; font-size: 11px;">
+                  <td style="font-weight: 700; padding-top: 2px;">
+                    MUDDATI:
+                  </td>
+                  <td
+                    class="right"
+                    style="font-weight: 700; padding-top: 2px;"
+                  >
+                    ${deadlineStr}
+                  </td>
+                </tr>
+              `
+              : ""
             }
           </table>
           
