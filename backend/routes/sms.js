@@ -18,9 +18,29 @@ const {
   sendBatchSms,
 } = require("../services/eskizService");
 
+const {
+  normalizeBaseUrl,
+  testAndroidGateway,
+  sendAndroidSms,
+} = require("../services/androidSmsService");
+
+const {
+  DEFAULT_ORDER_TEMPLATE,
+  clampReminderDays,
+} = require("../services/autoSms");
+
+const DEFAULT_TEMPLATE =
+  "Ассалому алайкум, {name}! Сизнинг қарзингиз: {duty} сўм.";
+
 // ============================================================
 // HELPER
 // ============================================================
+
+function normalizeProvider(value) {
+  return value === "android"
+    ? "android"
+    : "eskiz";
+}
 
 async function getOrCreateSettings() {
   let settings =
@@ -36,11 +56,104 @@ async function getOrCreateSettings() {
         eskizPassword: "",
 
         smsTemplate:
-          "Assalomu alaykum, {name}! Sizning qarzingiz: {duty} so'm.",
+          DEFAULT_TEMPLATE,
       });
   }
 
+  // Эски лотинча стандарт шаблон кирилл вариантига алмаштирилади
+  if (
+    settings.smsTemplate ===
+    "Assalomu alaykum, {name}! Sizning qarzingiz: {duty} so'm."
+  ) {
+    settings.smsTemplate =
+      DEFAULT_TEMPLATE;
+
+    await settings.save();
+  }
+
   return settings;
+}
+
+// Frontend учун созламалар. "eskizLogin" / "hasPassword" —
+// танланган усулнинг логини ва пароли борлиги (эски номлар сақланган).
+function serializeSettings(settings) {
+  const provider =
+    normalizeProvider(
+      settings.provider
+    );
+
+  const logins = {
+    eskiz:
+      settings.eskizLogin || "",
+    android:
+      settings.androidLogin || "",
+  };
+
+  const hasPasswords = {
+    eskiz: Boolean(
+      settings.eskizPassword
+    ),
+    android: Boolean(
+      settings.androidPassword
+    ),
+  };
+
+  return {
+    provider,
+
+    eskizLogin:
+      logins[provider],
+
+    hasPassword:
+      hasPasswords[provider],
+
+    androidUrl:
+      settings.androidUrl || "",
+
+    logins,
+    hasPasswords,
+
+    smsTemplate:
+      settings.smsTemplate,
+
+    // Автоматик СМС
+    orderSmsEnabled: Boolean(
+      settings.orderSmsEnabled
+    ),
+
+    orderSmsTemplate:
+      settings.orderSmsTemplate ||
+      DEFAULT_ORDER_TEMPLATE,
+
+    reminderEnabled: Boolean(
+      settings.reminderEnabled
+    ),
+
+    reminderDays:
+      clampReminderDays(
+        settings.reminderDays
+      ),
+  };
+}
+
+// Танланган усул тўлиқ созланганми?
+function isConfigured(settings) {
+  if (
+    normalizeProvider(
+      settings.provider
+    ) === "android"
+  ) {
+    return Boolean(
+      settings.androidUrl &&
+        settings.androidLogin &&
+        settings.androidPassword
+    );
+  }
+
+  return Boolean(
+    settings.eskizLogin &&
+      settings.eskizPassword
+  );
 }
 
 // ============================================================
@@ -58,18 +171,10 @@ router.get(
       return res.json({
         success: true,
 
-        settings: {
-          eskizLogin:
-            settings.eskizLogin,
-
-          hasPassword:
-            Boolean(
-              settings.eskizPassword
-            ),
-
-          smsTemplate:
-            settings.smsTemplate,
-        },
+        settings:
+          serializeSettings(
+            settings
+          ),
       });
     } catch (error) {
       console.error(
@@ -80,7 +185,7 @@ router.get(
       return res.status(500).json({
         success: false,
         message:
-          "SMS sozlamalarini olishda xatolik",
+          "СМС созламаларини олишда хатолик",
       });
     }
   }
@@ -99,7 +204,13 @@ router.put(
         eskizLogin,
         eskizPassword,
         smsTemplate,
+        androidUrl,
       } = req.body;
+
+      const provider =
+        normalizeProvider(
+          req.body.provider
+        );
 
       if (
         typeof eskizLogin !==
@@ -109,7 +220,9 @@ router.put(
         return res.status(400).json({
           success: false,
           message:
-            "Eskiz login kiritilishi kerak",
+            provider === "android"
+              ? "Телефондаги логин киритилиши керак"
+              : "Эскиз логин киритилиши керак",
         });
       }
 
@@ -121,7 +234,7 @@ router.put(
         return res.status(400).json({
           success: false,
           message:
-            "SMS matni kiritilishi kerak",
+            "СМС матни киритилиши керак",
         });
       }
 
@@ -129,24 +242,111 @@ router.put(
         await getOrCreateSettings();
 
       const updateData = {
-        eskizLogin:
-          eskizLogin.trim(),
+        provider,
 
         smsTemplate:
           smsTemplate.trim(),
       };
 
-      // Password bo'sh yuborilsa,
-      // eski password saqlanib qoladi.
+      // ------------------------------------------------------
+      // АВТОМАТИК СМС (юборилган майдонларгина ўзгаради)
+      // ------------------------------------------------------
+
       if (
+        typeof req.body.orderSmsEnabled ===
+        "boolean"
+      ) {
+        updateData.orderSmsEnabled =
+          req.body.orderSmsEnabled;
+      }
+
+      if (
+        typeof req.body.orderSmsTemplate ===
+        "string"
+      ) {
+        updateData.orderSmsTemplate =
+          req.body.orderSmsTemplate.trim();
+      }
+
+      if (
+        updateData.orderSmsEnabled &&
+        !(
+          updateData.orderSmsTemplate ??
+          settings.orderSmsTemplate ??
+          DEFAULT_ORDER_TEMPLATE
+        )
+      ) {
+        updateData.orderSmsTemplate =
+          DEFAULT_ORDER_TEMPLATE;
+      }
+
+      if (
+        req.body.reminderDays !==
+        undefined
+      ) {
+        updateData.reminderDays =
+          clampReminderDays(
+            req.body.reminderDays
+          );
+      }
+
+      if (
+        typeof req.body.reminderEnabled ===
+        "boolean"
+      ) {
+        updateData.reminderEnabled =
+          req.body.reminderEnabled;
+
+        // Ёқилган пайт: шу вақтгача СМС олмаган мижозлар учун саноқ боши
+        if (
+          req.body.reminderEnabled &&
+          !settings.reminderEnabled
+        ) {
+          updateData.reminderStartedAt =
+            new Date();
+        }
+      }
+
+      const newPassword =
         typeof eskizPassword ===
           "string" &&
         eskizPassword.trim()
-      ) {
-        updateData.eskizPassword =
-          encryptPassword(
-            eskizPassword.trim()
-          );
+          ? encryptPassword(
+              eskizPassword.trim()
+            )
+          : null;
+
+      if (provider === "android") {
+        try {
+          updateData.androidUrl =
+            normalizeBaseUrl(
+              androidUrl
+            );
+        } catch (urlError) {
+          return res.status(400).json({
+            success: false,
+            message:
+              urlError.message,
+          });
+        }
+
+        updateData.androidLogin =
+          eskizLogin.trim();
+
+        // Password bo'sh yuborilsa,
+        // eski password saqlanib qoladi.
+        if (newPassword) {
+          updateData.androidPassword =
+            newPassword;
+        }
+      } else {
+        updateData.eskizLogin =
+          eskizLogin.trim();
+
+        if (newPassword) {
+          updateData.eskizPassword =
+            newPassword;
+        }
       }
 
       await settings.update(
@@ -157,20 +357,12 @@ router.put(
         success: true,
 
         message:
-          "SMS sozlamalari saqlandi",
+          "СМС созламалари сақланди",
 
-        settings: {
-          eskizLogin:
-            settings.eskizLogin,
-
-          hasPassword:
-            Boolean(
-              settings.eskizPassword
-            ),
-
-          smsTemplate:
-            settings.smsTemplate,
-        },
+        settings:
+          serializeSettings(
+            settings
+          ),
       });
     } catch (error) {
       console.error(
@@ -181,14 +373,14 @@ router.put(
       return res.status(500).json({
         success: false,
         message:
-          "SMS sozlamalarini saqlashda xatolik",
+          "СМС созламаларини сақлашда хатолик",
       });
     }
   }
 );
 
 // ============================================================
-// TEST ESKIZ
+// TEST CONNECTION (ESKIZ / ANDROID)
 // ============================================================
 
 router.post(
@@ -199,15 +391,35 @@ router.post(
       const {
         eskizLogin,
         eskizPassword,
+        androidUrl,
       } = req.body;
 
       const settings =
         await getOrCreateSettings();
 
+      const provider =
+        normalizeProvider(
+          req.body.provider ||
+            settings.provider
+        );
+
+      const isAndroid =
+        provider === "android";
+
+      const savedLogin =
+        isAndroid
+          ? settings.androidLogin
+          : settings.eskizLogin;
+
+      const savedPassword =
+        isAndroid
+          ? settings.androidPassword
+          : settings.eskizPassword;
+
       const login =
         String(
           eskizLogin ||
-            settings.eskizLogin ||
+            savedLogin ||
             ""
         ).trim();
 
@@ -221,27 +433,45 @@ router.post(
       // SQLite'dagi saqlangan paroldan foydalanamiz.
       if (
         !password &&
-        settings.eskizPassword
+        savedPassword
       ) {
         password =
           decryptPassword(
-            settings.eskizPassword
+            savedPassword
           );
       }
 
       if (!login) {
         return res.status(400).json({
           success: false,
-          message:
-            "Eskiz login kiritilmagan",
+          message: isAndroid
+            ? "Телефондаги логин киритилмаган"
+            : "Эскиз логин киритилмаган",
         });
       }
 
       if (!password) {
         return res.status(400).json({
           success: false,
+          message: isAndroid
+            ? "Телефондаги парол киритилмаган"
+            : "Эскиз пароли киритилмаган",
+        });
+      }
+
+      if (isAndroid) {
+        await testAndroidGateway({
+          url:
+            androidUrl ||
+            settings.androidUrl,
+          login,
+          password,
+        });
+
+        return res.json({
+          success: true,
           message:
-            "Eskiz paroli kiritilmagan",
+            "Телефон муваффақиятли уланди",
         });
       }
 
@@ -253,11 +483,11 @@ router.post(
       return res.json({
         success: true,
         message:
-          "Eskiz akkaunti muvaffaqiyatli ulandi",
+          "Эскиз аккаунти муваффақиятли уланди",
       });
     } catch (error) {
       console.error(
-        "TEST ESKIZ ERROR:",
+        "TEST SMS PROVIDER ERROR:",
         error
       );
 
@@ -265,14 +495,14 @@ router.post(
         success: false,
         message:
           error.message ||
-          "Eskiz akkauntini tekshirishda xatolik",
+          "Уланишни текширишда хатолик",
       });
     }
   }
 );
 
 // ============================================================
-// BALANCE
+// BALANCE / CONNECTION STATUS
 // ============================================================
 
 router.get(
@@ -283,14 +513,34 @@ router.get(
       const settings =
         await getOrCreateSettings();
 
-      if (
-        !settings.eskizLogin ||
-        !settings.eskizPassword
-      ) {
+      if (!isConfigured(settings)) {
         return res.status(400).json({
           success: false,
           message:
-            "Avval Eskiz akkauntini sozlang",
+            "Аввал СМС юбориш усулини созланг",
+        });
+      }
+
+      // Android телефонда баланс йўқ: фақат уланиш текширилади.
+      if (
+        normalizeProvider(
+          settings.provider
+        ) === "android"
+      ) {
+        await testAndroidGateway({
+          url: settings.androidUrl,
+          login:
+            settings.androidLogin,
+          password:
+            decryptPassword(
+              settings.androidPassword
+            ),
+        });
+
+        return res.json({
+          success: true,
+          provider: "android",
+          balance: null,
         });
       }
 
@@ -307,6 +557,7 @@ router.get(
 
       return res.json({
         success: true,
+        provider: "eskiz",
         balance,
       });
     } catch (error) {
@@ -319,7 +570,7 @@ router.get(
         success: false,
         message:
           error.message ||
-          "SMS balansini olishda xatolik",
+          "СМС балансини олишда хатолик",
       });
     }
   }
@@ -345,30 +596,31 @@ router.post(
         return res.status(400).json({
           success: false,
           message:
-            "SMS yuboriladigan mijozlar topilmadi",
+            "СМС юбориладиган мижозлар топилмади",
         });
       }
 
       const settings =
         await getOrCreateSettings();
 
-      if (
-        !settings.eskizLogin ||
-        !settings.eskizPassword
-      ) {
+      const provider =
+        normalizeProvider(
+          settings.provider
+        );
+
+      if (!isConfigured(settings)) {
         return res.status(400).json({
           success: false,
           code:
-            "ESKIZ_NOT_CONFIGURED",
+            provider === "android"
+              ? "ANDROID_NOT_CONFIGURED"
+              : "ESKIZ_NOT_CONFIGURED",
           message:
-            "Avval Eskiz akkauntini sozlang",
+            provider === "android"
+              ? "Аввал телефон манзили, логин ва паролини созланг"
+              : "Аввал Эскиз аккаунтини созланг",
         });
       }
-
-      const password =
-        decryptPassword(
-          settings.eskizPassword
-        );
 
       // --------------------------------------------------------
       // VALIDATE MESSAGES
@@ -383,7 +635,7 @@ router.post(
               !message.text
             ) {
               throw new Error(
-                `${index + 1}-SMS ma'lumotlari noto'g'ri`
+                `${index + 1}-СМС маълумотлари нотўғри`
               );
             }
 
@@ -403,16 +655,16 @@ router.post(
               )
             ) {
               throw new Error(
-                `${index + 1}-mijoz telefon raqami noto'g'ri`
+                `${index + 1}-мижоз телефон рақами нотўғри`
               );
             }
 
             return {
               user_sms_id:
-  String(
-    message.user_sms_id ||
-      `sms${Date.now()}${index}`
-  ),
+                String(
+                  message.user_sms_id ||
+                    `sms${Date.now()}${index}`
+                ),
 
               to: Number(phone),
 
@@ -425,7 +677,56 @@ router.post(
         );
 
       // --------------------------------------------------------
-      // SEND
+      // SEND: ANDROID
+      // --------------------------------------------------------
+
+      if (provider === "android") {
+        const result =
+          await sendAndroidSms({
+            url: settings.androidUrl,
+            login:
+              settings.androidLogin,
+            password:
+              decryptPassword(
+                settings.androidPassword
+              ),
+            messages:
+              normalizedMessages,
+          });
+
+        if (result.sent === 0) {
+          const firstError =
+            result.results.find(
+              (item) => !item.ok
+            );
+
+          return res.status(400).json({
+            success: false,
+            message:
+              firstError?.error ||
+              "СМС юборишда хатолик",
+            result,
+          });
+        }
+
+        return res.json({
+          success: true,
+          provider: "android",
+
+          message:
+            result.failed > 0
+              ? `${result.sent} та СМС телефонга юборилди, ${result.failed} таси юборилмади`
+              : `${result.sent} та СМС телефонга юборилди`,
+
+          sent: result.sent,
+          failed: result.failed,
+
+          result,
+        });
+      }
+
+      // --------------------------------------------------------
+      // SEND: ESKIZ
       // --------------------------------------------------------
 
       const result =
@@ -433,7 +734,10 @@ router.post(
           email:
             settings.eskizLogin,
 
-          password,
+          password:
+            decryptPassword(
+              settings.eskizPassword
+            ),
 
           messages:
             normalizedMessages,
@@ -441,9 +745,14 @@ router.post(
 
       return res.json({
         success: true,
+        provider: "eskiz",
 
         message:
-          "SMS yuborish so'rovi Eskizga yuborildi",
+          "СМС юбориш сўрови Эскизга юборилди",
+
+        sent:
+          normalizedMessages.length,
+        failed: 0,
 
         result,
       });
@@ -458,7 +767,7 @@ router.post(
 
         message:
           error.message ||
-          "SMS yuborishda xatolik",
+          "СМС юборишда хатолик",
       });
     }
   }
@@ -478,19 +787,37 @@ router.delete(
 
       if (settings) {
         await settings.update({
+          provider: "eskiz",
+
           eskizLogin: "",
 
           eskizPassword: "",
 
+          androidUrl: "",
+
+          androidLogin: "",
+
+          androidPassword: "",
+
+          orderSmsEnabled: false,
+
+          orderSmsTemplate: "",
+
+          reminderEnabled: false,
+
+          reminderDays: 7,
+
+          reminderStartedAt: null,
+
           smsTemplate:
-            "Assalomu alaykum, {name}! Sizning qarzingiz: {duty} so'm.",
+            DEFAULT_TEMPLATE,
         });
       }
 
       return res.json({
         success: true,
         message:
-          "SMS sozlamalari tozalandi",
+          "СМС созламалари тозаланди",
       });
     } catch (error) {
       console.error(
@@ -501,7 +828,7 @@ router.delete(
       return res.status(500).json({
         success: false,
         message:
-          "SMS sozlamalarini tozalashda xatolik",
+          "СМС созламаларини тозалашда хатолик",
       });
     }
   }

@@ -4,7 +4,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Search, X as XIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, matchesSearch } from '@/lib/utils'
 import { useT } from '@/lib/i18n'
 
 export { PhoneInput } from './PhoneInput'
@@ -206,12 +206,11 @@ export function Combobox({
   )
 
   const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim()
     if (!q) return options
-    return options.filter((o) => {
-      const hay = `${o.label} ${o.value} ${o.hint ?? ''}`.toLowerCase()
-      return hay.includes(q)
-    })
+    return options.filter((o) =>
+      matchesSearch([o.label, o.hint, o.value], q),
+    )
   }, [options, query])
 
   React.useEffect(() => {

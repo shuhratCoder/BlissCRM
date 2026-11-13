@@ -95,7 +95,7 @@ interface EskizAuthResponse {
 export async function loginEskizFromEnv(): Promise<string> {
   const res = await fetch('/api/eskiz/login', { method: 'POST' })
   if (!res.ok) {
-    let message = `Eskiz login failed (${res.status})`
+    let message = `Эскизга кириш амалга ошмади (${res.status})`
     try {
       const body = await res.json()
       if (body?.error) message = body.error
@@ -103,7 +103,7 @@ export async function loginEskizFromEnv(): Promise<string> {
     throw new Error(message)
   }
   const body = (await res.json()) as { token?: string }
-  if (!body.token) throw new Error('Eskiz: token missing in login response')
+  if (!body.token) throw new Error('Эскиз токен қайтармади')
 
   useEskizStore.getState().setToken(body.token)
   return body.token
@@ -118,7 +118,7 @@ export async function refreshToken(): Promise<string> {
     { __isRetry: true } as RetriableConfig, // prevent recursive refresh on 401
   )
   const token = res.data?.data?.token
-  if (!token) throw new Error('Eskiz: token missing in refresh response')
+  if (!token) throw new Error('Эскиз токен қайтармади')
 
   useEskizStore.getState().setToken(token)
   return token

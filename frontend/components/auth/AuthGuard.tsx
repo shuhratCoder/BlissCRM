@@ -130,6 +130,27 @@ export default function AuthGuard({
               );
             }
 
+            // Сервер ёки локал текширув рад этди (блок, муддат тугаган,
+            // соат орқага сурилган): сессия ёпилади ва сабаби кўрсатилади.
+            if (
+              !licenseResponse.ok &&
+              licenseData?.allowed === false
+            ) {
+              logout();
+
+              useAuthStore
+                .getState()
+                .setAuthError(
+                  licenseData.message ||
+                    "Лицензия тасдиқланмади",
+                  licenseData.code ||
+                    "LICENSE_INACTIVE",
+                );
+
+              router.replace("/login");
+              return;
+            }
+
             const licenseStatus =
               licenseData?.license?.status;
 
@@ -176,7 +197,7 @@ export default function AuthGuard({
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-gray-200 border-t-blue-600" />
 
           <p className="mt-4 text-sm text-gray-500">
-            Tizim yuklanmoqda...
+            Тизим юкланмоқда...
           </p>
         </div>
       </div>

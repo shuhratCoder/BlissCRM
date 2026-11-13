@@ -11,7 +11,7 @@ function authMiddleware(req, res, next) {
       return res.status(401).json({
         success: false,
         code: "TOKEN_NOT_FOUND",
-        message: "Token topilmadi",
+        message: "Токен топилмади",
       });
     }
 
@@ -26,7 +26,7 @@ function authMiddleware(req, res, next) {
         success: false,
         code: "INVALID_TOKEN_FORMAT",
         message:
-          "Token formati noto'g'ri",
+          "Токен формати нотўғри",
       });
     }
 
@@ -39,7 +39,7 @@ function authMiddleware(req, res, next) {
         success: false,
         code: "JWT_SECRET_NOT_FOUND",
         message:
-          "Server konfiguratsiyasi noto'g'ri",
+          "Сервер конфигурацияси нотўғри",
       });
     }
 
@@ -56,7 +56,7 @@ function authMiddleware(req, res, next) {
         success: false,
         code: "INVALID_SESSION_TYPE",
         message:
-          "Desktop session token noto'g'ri",
+          "Сессия токени нотўғри",
       });
     }
 
@@ -65,7 +65,7 @@ function authMiddleware(req, res, next) {
         success: false,
         code: "INVALID_SESSION",
         message:
-          "Session ma'lumotlari noto'g'ri",
+          "Сессия маълумотлари нотўғри",
       });
     }
 
@@ -87,7 +87,7 @@ function authMiddleware(req, res, next) {
         success: false,
         code: "TOKEN_EXPIRED",
         message:
-          "Session muddati tugagan",
+          "Сессион муддати тугаган",
       });
     }
 
@@ -98,7 +98,7 @@ function authMiddleware(req, res, next) {
       return res.status(401).json({
         success: false,
         code: "INVALID_TOKEN",
-        message: "Token noto'g'ri",
+        message: "Токен нотўғри",
       });
     }
 
@@ -111,7 +111,7 @@ function authMiddleware(req, res, next) {
       success: false,
       code: "AUTH_ERROR",
       message:
-        "Authorization xatosi",
+        "Авторизация хатоси",
     });
   }
 }

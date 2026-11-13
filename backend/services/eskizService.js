@@ -113,7 +113,7 @@ function decryptPassword(encryptedPassword) {
 
   if (parts.length !== 3) {
     throw new Error(
-      "Eskiz password format noto'g'ri"
+      "Эскиз парол формати нотўғри"
     );
   }
 
@@ -181,7 +181,7 @@ async function loginToEskiz(
 ) {
   if (!email || !password) {
     throw new Error(
-      "Eskiz login va parol kiritilmagan"
+      "Эскиз логин ва парол киритилмаган"
     );
   }
 
@@ -224,7 +224,7 @@ async function loginToEskiz(
     if (!response.ok) {
       throw new Error(
         result?.message ||
-          `Eskiz login xatosi: ${response.status}`
+          `Эскиз логин хатоси: ${response.status}`
       );
     }
 
@@ -233,7 +233,7 @@ async function loginToEskiz(
 
     if (!token) {
       throw new Error(
-        "Eskiz token qaytarmadi"
+        "Эскиз токен қайтармади"
       );
     }
 
@@ -247,7 +247,7 @@ async function loginToEskiz(
       "TimeoutError"
     ) {
       throw new Error(
-        "Eskiz serveriga ulanish vaqt tugadi"
+        "Эскиз серверига уланиш вақт тугади"
       );
     }
 
@@ -319,7 +319,7 @@ async function sendBatchSms({
   messages,
 }) {
   if (!Array.isArray(messages) || messages.length === 0) {
-    throw new Error("SMS yuborish uchun xabarlar mavjud emas");
+    throw new Error("СМС юбориш учун хабарлар мавжуд эмас");
   }
 
   const { token } = await loginToEskiz(email, password);

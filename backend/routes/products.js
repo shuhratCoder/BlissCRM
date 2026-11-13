@@ -20,7 +20,7 @@ router.post(
 
     if (!name || !unit) {
       return res.status(400).json({
-        error: "Name va unit majburiy",
+        error: "Ном ва ўлчов бирлиги мажбурий",
       });
     }
 
@@ -61,7 +61,7 @@ router.post(
       if (productsInput.length === 0) {
         await transaction.rollback();
         return res.status(400).json({
-          error: "Products topilmadi",
+          error: "Маҳсулотлар топилмади",
         });
       }
 
@@ -73,7 +73,7 @@ router.post(
         if (!item.productId || !Number.isFinite(amount) || amount <= 0) {
           await transaction.rollback();
           return res.status(400).json({
-            error: "Product id yoki miqdori noto'g'ri",
+            error: "Маҳсулот ID ёки миқдори нотўғри",
           });
         }
 
@@ -82,7 +82,7 @@ router.post(
         if (!product) {
           await transaction.rollback();
           return res.status(404).json({
-            error: "Product not found",
+            error: "Маҳсулот топилмади",
           });
         }
 
@@ -99,7 +99,7 @@ router.post(
       await transaction.commit();
 
       return res.status(200).json({
-        message: "Products added successfully",
+        message: "Маҳсулотлар қўшилди",
         products: updatedProducts,
       });
     } catch (error) {
@@ -130,7 +130,7 @@ router.put(
 
     if (!product) {
       return res.status(404).json({
-        error: "Product not found",
+        error: "Маҳсулот топилмади",
       });
     }
 
@@ -156,14 +156,14 @@ const deleteHandler = asyncHandler(async (req, res) => {
 
   if (!product) {
     return res.status(404).json({
-      error: "Product not found",
+      error: "Маҳсулот топилмади",
     });
   }
 
   await product.destroy();
 
   return res.status(200).json({
-    message: "Product deleted successfully",
+    message: "Маҳсулот ўчирилди",
   });
 });
 

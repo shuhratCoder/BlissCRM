@@ -282,6 +282,7 @@ export interface UpdateClientInput {
   id: string
   name: string
   phone: string
+  description?: string
 }
 
 export function useUpdateClient() {
@@ -292,7 +293,7 @@ export function useUpdateClient() {
       data: UpdateClientInput,
     ) =>
       crmApi.put<Client>(
-        '/updateClient',
+        `/updateClient/${data.id}`,
         data,
       ),
 
@@ -409,6 +410,55 @@ export function useRePayment() {
   })
 }
 
+// Bir nechta buyurtma qarzini birga to'lash: summa eng eski
+// qarzli buyurtmadan boshlab taqsimlanadi.
+export interface RePaymentBulkInput {
+  clientId: string
+  receivedAmount: number
+  description?: string
+  typeGet: RePaymentType
+}
+
+export function useRePaymentBulk() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (
+      data: RePaymentBulkInput,
+    ) =>
+      crmApi.post(
+        '/rePaymentBulk',
+        data,
+      ),
+
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey:
+          clientsQueryKey,
+      })
+
+      qc.invalidateQueries({
+        queryKey:
+          ordersQueryKey,
+      })
+
+      toast()({
+        type: 'success',
+        title:
+          tStatic(
+            'toast.paymentSaved',
+          ),
+      })
+    },
+
+    onError: (e: Error) =>
+      toast()({
+        type: 'error',
+        title: e.message,
+      }),
+  })
+}
+
 // ============================================================
 // ORDERS
 // ============================================================
@@ -476,7 +526,7 @@ export function useCreateOrder() {
         data,
       ),
 
-    onSuccess: () => {
+    onSuccess: (response) => {
       qc.invalidateQueries({
         queryKey:
           ordersQueryKey,
@@ -499,6 +549,27 @@ export function useCreateOrder() {
             'toast.orderAdded',
           ),
       })
+
+      // Buyurtma bilan birga mijozga avtomatik SMS yuborilgan bo'lsa,
+      // natijasi alohida ko'rsatiladi (SMS xatosi buyurtmani bekor qilmaydi).
+      const sms = (
+        response as unknown as {
+          sms?: {
+            attempted?: boolean
+            ok?: boolean
+            message?: string
+          }
+        }
+      )?.sms
+
+      if (sms?.attempted && sms.message) {
+        toast()({
+          type: sms.ok
+            ? 'success'
+            : 'warning',
+          title: sms.message,
+        })
+      }
     },
 
     onError: (e: Error) =>

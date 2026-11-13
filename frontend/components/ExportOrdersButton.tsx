@@ -63,7 +63,7 @@ export function ExportOrdersButton({
       })
     } catch (e) {
       console.error('Excel export failed', e)
-      setError(e instanceof Error ? e.message : 'Export failed')
+      setError(e instanceof Error ? e.message : 'Экспорт амалга ошмади')
     } finally {
       setLoading(false)
     }

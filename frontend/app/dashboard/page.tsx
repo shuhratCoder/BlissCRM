@@ -232,8 +232,8 @@ export default function DashboardPage() {
         </SectionCard>
       </div>
 
-      {/* ── Top debtors / Top products ──────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* ── Top debtors ─────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4">
         <SectionCard title={t('dashboard.topDebtors')}>
           {data.topDebtors.length > 0 ? (
             <HorizontalBars
@@ -250,24 +250,6 @@ export default function DashboardPage() {
             />
           ) : (
             <EmptyBlock label={t('dashboard.allGood')} />
-          )}
-        </SectionCard>
-
-        <SectionCard title={t('dashboard.topProducts')}>
-          {data.topProducts.length > 0 ? (
-            <HorizontalBars
-              max={data.topProducts[0]?.qty ?? 1}
-              rows={data.topProducts.map((p, i) => ({
-                key: p.productId,
-                label: p.name,
-                sub: t('dashboard.unitsSold', { n: p.qty }),
-                value: p.qty,
-                valueLabel: String(p.qty),
-                color: SERIES_COLORS[i % SERIES_COLORS.length],
-              }))}
-            />
-          ) : (
-            <EmptyBlock label={t('dashboard.noData')} />
           )}
         </SectionCard>
       </div>
@@ -365,38 +347,6 @@ export default function DashboardPage() {
         </SectionCard>
       </div>
 
-      {/* ── Low stock alert ─────────────────────────────── */}
-      {data.lowStock.length > 0 && (
-        <SectionCard
-          title={t('dashboard.lowStock')}
-          subtitle={
-            <span className="text-xs text-amber-700">
-              {t('dashboard.lowStockDesc', { n: LOW_STOCK_THRESHOLD })}
-            </span>
-          }
-          tone="amber"
-        >
-          <ul className="divide-y divide-amber-100">
-            {data.lowStock.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center justify-between py-2 text-sm"
-              >
-                <span className="text-gray-900">{p.name}</span>
-                <span
-                  className={cn(
-                    'font-semibold',
-                    p.amount === 0 ? 'text-red-600' : 'text-amber-700',
-                  )}
-                >
-                  {p.amount}{' '}
-                  {p.unit ? t(`inventory.unit.${p.unit}`) : t('common.pcs')}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-      )}
     </div>
   )
 }

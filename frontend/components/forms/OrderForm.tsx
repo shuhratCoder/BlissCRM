@@ -8,14 +8,14 @@ import React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Plus,
-  Trash2,
   ExternalLink,
+  UserPlus,
 } from 'lucide-react'
+
+import { ClientModal } from '@/components/forms/ClientModal'
 
 import {
   useClients,
-  useProducts,
   useCreateOrder,
   type OrderTypeGet,
 } from '@/hooks'
@@ -47,15 +47,8 @@ type PaymentMode =
   | 'full'
   | 'partial'
 
-interface FormItem {
-  productId: string
-  quantity: number
-  price: number
-}
-
 interface FormErrors {
   client?: string
-  items?: string
   amount?: string
   deadline?: string
   method?: string
@@ -65,37 +58,6 @@ interface FormErrors {
 // ============================================================
 // HELPERS
 // ============================================================
-
-function newEmptyItem(): FormItem {
-  return {
-    productId: '',
-    quantity: 1,
-    price: 0,
-  }
-}
-
-function parsePrice(
-  value: unknown,
-): number {
-  if (typeof value === 'number') {
-    return value
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(
-      value.replace(
-        /[^\d.-]/g,
-        '',
-      ),
-    )
-
-    return Number.isFinite(parsed)
-      ? parsed
-      : 0
-  }
-
-  return 0
-}
 
 function todayIsoDate(): string {
   const date = new Date()
@@ -136,21 +98,12 @@ export default function OrderForm() {
     data: clients,
   } = useClients()
 
-  const {
-    data: products,
-  } = useProducts()
-
   const createOrder =
     useCreateOrder()
 
   // ----------------------------------------------------------
   // FORM STATE
   // ----------------------------------------------------------
-
-  const [
-    items,
-    setItems,
-  ] = React.useState<FormItem[]>([])
 
   const [
     servicePrice,
@@ -161,6 +114,11 @@ export default function OrderForm() {
     clientId,
     setClientId,
   ] = React.useState<string>('')
+
+  const [
+    newClientOpen,
+    setNewClientOpen,
+  ] = React.useState(false)
 
   const [
     description,
@@ -205,30 +163,8 @@ export default function OrderForm() {
   // CALCULATIONS
   // ==========================================================
 
-  const itemsSubtotal =
-    items.reduce(
-      (sum, item) =>
-        sum +
-        (
-          Number(
-            item.quantity,
-          ) || 0
-        ) *
-          (
-            Number(
-              item.price,
-            ) || 0
-          ),
-      0,
-    )
-
   const total =
-    itemsSubtotal +
-    (
-      Number(
-        servicePrice,
-      ) || 0
-    )
+    Number(servicePrice) || 0
 
   const effectivePaid =
     paymentMode === 'full'
@@ -253,60 +189,6 @@ export default function OrderForm() {
 
   const clientExistingDebt =
     client?.totalDebt ?? 0
-
-  // ==========================================================
-  // STOCK
-  // ==========================================================
-
-  function stockOf(
-    productId: string,
-  ): number {
-    return (
-      products?.find(
-        (product) =>
-          product.id === productId,
-      )?.amount ?? 0
-    )
-  }
-
-  // ==========================================================
-  // ITEM ACTIONS
-  // ==========================================================
-
-  function patchItem(
-    index: number,
-    patch: Partial<FormItem>,
-  ) {
-    setItems((previous) =>
-      previous.map(
-        (item, itemIndex) =>
-          itemIndex === index
-            ? {
-                ...item,
-                ...patch,
-              }
-            : item,
-      ),
-    )
-  }
-
-  function addItemRow() {
-    setItems((previous) => [
-      ...previous,
-      newEmptyItem(),
-    ])
-  }
-
-  function removeItemRow(
-    index: number,
-  ) {
-    setItems((previous) =>
-      previous.filter(
-        (_, itemIndex) =>
-          itemIndex !== index,
-      ),
-    )
-  }
 
   // ==========================================================
   // SUBMIT
@@ -338,68 +220,15 @@ export default function OrderForm() {
     }
 
     // --------------------------------------------------------
-    // EMPTY ORDER VALIDATION
+    // PRICE VALIDATION
     // --------------------------------------------------------
 
     if (
-      items.length === 0 &&
-      (
-        !servicePrice ||
-        servicePrice <= 0
-      )
+      !servicePrice ||
+      servicePrice <= 0
     ) {
       newErrors.global =
         t('orderForm.emptyOrder')
-    }
-
-    // --------------------------------------------------------
-    // PRODUCT VALIDATION
-    // --------------------------------------------------------
-
-    for (const item of items) {
-      if (!item.productId) {
-        newErrors.items =
-          t('val.chooseProduct')
-
-        break
-      }
-
-      if (
-        !item.quantity ||
-        item.quantity <= 0
-      ) {
-        newErrors.items =
-          t('val.min1')
-
-        break
-      }
-
-      const maxAvailable =
-        stockOf(
-          item.productId,
-        )
-
-      if (
-        item.quantity >
-        maxAvailable
-      ) {
-        newErrors.items =
-          t(
-            'orderForm.tooMuchInStock',
-            {
-              n: maxAvailable,
-            },
-          )
-
-        break
-      }
-
-      if (item.price < 0) {
-        newErrors.items =
-          t('val.priceNonNeg')
-
-        break
-      }
     }
 
     // --------------------------------------------------------
@@ -419,15 +248,8 @@ export default function OrderForm() {
           )
       }
 
+      // Муддат ихтиёрий; киритилган бўлса, ўтган сана бўлмаслиги керак
       if (
-        remainingDebt > 0 &&
-        !deadline
-      ) {
-        newErrors.deadline =
-          t(
-            'val.chooseDeadline',
-          )
-      } else if (
         remainingDebt > 0 &&
         deadline
       ) {
@@ -487,28 +309,12 @@ export default function OrderForm() {
             servicePrice,
           ) || 0,
 
-        productsPrice:
-          itemsSubtotal,
+        productsPrice: 0,
 
         description:
           description ?? '',
 
-        products: items.map((item) => {
-  const product = products?.find(
-    (productItem) =>
-      productItem.id === item.productId,
-  )
-
-  return {
-    productId: item.productId,
-    name: product?.name || 'Mahsulot',
-    amount: item.quantity,
-    price: item.price,
-    total:
-      Number(item.quantity) *
-      Number(item.price),
-  }
-}),
+        products: [],
         status,
 
         receivedAmount:
@@ -618,73 +424,6 @@ export default function OrderForm() {
     ])
 
   // ==========================================================
-  // PRODUCT OPTIONS
-  // ==========================================================
-
-  function productOptionsFor(
-    rowIndex: number,
-  ) {
-    return (
-      products ?? []
-    )
-      .slice()
-      .sort(
-        (a, b) =>
-          (
-            a.name ?? ''
-          ).localeCompare(
-            b.name ?? '',
-            undefined,
-            {
-              sensitivity:
-                'base',
-            },
-          ),
-      )
-      .filter((product) => {
-        const currentId =
-          items[
-            rowIndex
-          ]?.productId
-
-        if (
-          product.id ===
-          currentId
-        ) {
-          return true
-        }
-
-        return !items.some(
-          (
-            item,
-            itemIndex,
-          ) =>
-            itemIndex !==
-              rowIndex &&
-            item.productId ===
-              product.id,
-        )
-      })
-      .map((product) => ({
-        value:
-          product.id,
-
-        label:
-          product.name ?? '',
-
-        hint:
-          t(
-            'orderForm.inStock',
-            {
-              n:
-                product.amount ??
-                0,
-            },
-          ),
-      }))
-  }
-
-  // ==========================================================
   // UI
   // ==========================================================
 
@@ -710,194 +449,38 @@ export default function OrderForm() {
       >
 
         {/* ================================================== */}
-        {/* PRODUCTS */}
+        {/* PRICE */}
         {/* ================================================== */}
 
-        <section className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+        <section className="bg-white rounded-xl border border-gray-100 p-5 space-y-2">
 
-          <div className="flex items-center justify-between">
-
-            <h3 className="text-sm font-semibold text-gray-700">
-              {t(
-                'orderForm.items',
-              )}
-            </h3>
-
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={addItemRow}
-            >
-              <Plus size={14} />
-
-              {t(
-                'orderForm.addItem',
-              )}
-            </Button>
-          </div>
-
-          {items.length === 0 && (
-            <p className="text-xs text-gray-400 italic">
-              {t(
-                'orderForm.noItems',
-              )}
-            </p>
-          )}
-
-          {items.length > 0 && (
-            <div className="space-y-3">
-              {items.map(
-                (item, index) => (
-                  <ItemRow
-                    key={index}
-                    index={index}
-                    showLabels={
-                      index === 0
-                    }
-                    item={item}
-                    options={
-                      productOptionsFor(
-                        index,
-                      )
-                    }
-                    maxQty={
-                      item.productId
-                        ? stockOf(
-                            item.productId,
-                          )
-                        : null
-                    }
-                    onPatch={(
-                      patch,
-                    ) =>
-                      patchItem(
-                        index,
-                        patch,
-                      )
-                    }
-                    onPickProduct={(productId) => {
-                      const product = products?.find(
-                        (productItem) =>
-                          productItem.id === productId,
-                      )
-                      patchItem(index, {
-                      productId,
-                      quantity: 1,
-                      price: parsePrice(product?.priceGet ?? 0),
-                    })
-                    }}
-                    onRemove={() =>
-                      removeItemRow(
-                        index,
-                      )
-                    }
-                  />
-                ),
-              )}
-            </div>
-          )}
-
-          {errors.items && (
-            <p className="text-xs text-red-500">
-              {errors.items}
-            </p>
-          )}
-
-          <div className="border-t border-gray-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-
-            <Input
-              label={t(
-                'orderForm.servicePrice',
-              )}
-              type="number"
-              step="0.01"
-              min={0}
-              placeholder="0"
-              hint={t(
-                'orderForm.servicePriceHint',
-              )}
-              value={
-                servicePrice || ''
-              }
-              onChange={(
-                event,
-              ) =>
-                setServicePrice(
-                  Number(
-                    event.target.value,
-                  ) || 0,
-                )
-              }
-            />
-
-            {itemsSubtotal > 0 && (
-              <div className="space-y-1">
-
-                <label className="block text-sm font-medium text-gray-700">
-                  {t(
-                    'orderForm.subtotalItems',
-                  )}
-                </label>
-
-                <div className="h-9 px-3 flex items-center justify-end w-full rounded-lg bg-gray-50 border border-gray-100 text-sm font-medium text-gray-900">
-                  {formatCurrency(
-                    itemsSubtotal,
-                  )}
-                </div>
-              </div>
+          <Input
+            label={t(
+              'orderForm.servicePrice',
             )}
-          </div>
-        </section>
-
-        {/* ================================================== */}
-        {/* TOTAL */}
-        {/* ================================================== */}
-
-        <section className="bg-gradient-to-br from-blue-50 to-blue-100/40 rounded-xl border border-blue-100 p-5">
-
-          <div className="space-y-1.5 text-sm">
-
-            <Row
-              label={t(
-                'orderForm.subtotalItems',
-              )}
-              value={formatCurrency(
-                itemsSubtotal,
-              )}
-            />
-
-            <Row
-              label={t(
-                'orderForm.subtotalService',
-              )}
-              value={formatCurrency(
+            type="number"
+            step="0.01"
+            min={0}
+            placeholder="0"
+            hint={t(
+              'orderForm.servicePriceHint',
+            )}
+            value={
+              servicePrice || ''
+            }
+            onChange={(
+              event,
+            ) =>
+              setServicePrice(
                 Number(
-                  servicePrice,
+                  event.target.value,
                 ) || 0,
-              )}
-            />
-
-            <div className="h-px bg-blue-200 my-2" />
-
-            <div className="flex items-center justify-between">
-
-              <span className="text-sm font-semibold text-blue-900 uppercase tracking-wide">
-                {t(
-                  'orderForm.grandTotal',
-                )}
-              </span>
-
-              <span className="text-2xl font-bold text-blue-900">
-                {formatCurrency(
-                  total,
-                )}
-              </span>
-            </div>
-          </div>
+              )
+            }
+          />
 
           {errors.global && (
-            <p className="text-xs text-red-600 mt-2">
+            <p className="text-xs text-red-600">
               {errors.global}
             </p>
           )}
@@ -941,6 +524,30 @@ export default function OrderForm() {
             }
             error={
               errors.client
+            }
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              setNewClientOpen(true)
+            }
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
+            <UserPlus size={15} />
+            {t(
+              'customerForm.newTitle',
+            )}
+          </button>
+
+          <ClientModal
+            open={newClientOpen}
+            onClose={() =>
+              setNewClientOpen(false)
+            }
+            mode="create"
+            onCreated={(created) =>
+              setClientId(created.id)
             }
           />
 
@@ -1081,7 +688,12 @@ export default function OrderForm() {
                 inputMode="numeric"
                 placeholder="0"
                 value={
-                  paidNow || ''
+                  paidNow
+                }
+                onFocus={(
+                  event,
+                ) =>
+                  event.target.select()
                 }
                 onChange={(
                   event,
@@ -1239,263 +851,6 @@ export default function OrderForm() {
 }
 
 // ============================================================
-// ITEM ROW
-// ============================================================
-
-function ItemRow({
-  index,
-  showLabels,
-  item,
-  options,
-  maxQty,
-  onPatch,
-  onPickProduct,
-  onRemove,
-}: {
-  index: number
-
-  showLabels: boolean
-
-  item: FormItem
-
-  options: {
-    value: string
-    label: string
-    hint?: string
-  }[]
-
-  maxQty: number | null
-
-  onPatch: (
-    patch: Partial<FormItem>,
-  ) => void
-
-  onPickProduct: (
-    id: string,
-  ) => void
-
-  onRemove: () => void
-}) {
-  const { t } = useT()
-
-  const lineTotal =
-    (
-      Number(
-        item.quantity,
-      ) || 0
-    ) *
-    (
-      Number(
-        item.price,
-      ) || 0
-    )
-
-  const overLimit =
-    maxQty != null &&
-    (
-      Number(
-        item.quantity,
-      ) || 0
-    ) > maxQty
-
-  return (
-    <div className="grid grid-cols-12 gap-2 items-end">
-
-      {/* PRODUCT */}
-
-      <div className="col-span-12 sm:col-span-5">
-
-        <Combobox
-          label={
-            showLabels
-              ? t(
-                  'orderForm.product',
-                )
-              : undefined
-          }
-          placeholder={t(
-            'orderForm.choosePh',
-          )}
-          options={options}
-          value={
-            item.productId ??
-            ''
-          }
-          onChange={(
-            value,
-          ) =>
-            onPickProduct(
-              value,
-            )
-          }
-        />
-      </div>
-
-      {/* QUANTITY */}
-
-      <div className="col-span-4 sm:col-span-2">
-
-        <div className="flex items-baseline justify-between gap-2 mb-1 h-5">
-
-          {showLabels ? (
-            <span className="block text-sm font-medium text-gray-700">
-              {t(
-                'orderForm.qty',
-              )}
-            </span>
-          ) : (
-            <span />
-          )}
-
-          {maxQty != null && (
-            <span
-              className={cn(
-                'text-[10px] whitespace-nowrap',
-
-                overLimit
-                  ? 'text-red-600 font-medium'
-                  : 'text-gray-400',
-              )}
-              title={t(
-                'orderForm.inStock',
-                {
-                  n: maxQty,
-                },
-              )}
-            >
-              {t(
-                'orderForm.inStock',
-                {
-                  n: maxQty,
-                },
-              )}
-            </span>
-          )}
-        </div>
-
-        <Input
-          type="number"
-          min={1}
-          max={
-            maxQty ??
-            undefined
-          }
-          step="any"
-          value={
-            item.quantity ||
-            ''
-          }
-          className={
-            overLimit
-              ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
-              : undefined
-          }
-          onChange={(
-            event,
-          ) =>
-            onPatch({
-              quantity:
-                Number(
-                  event.target.value,
-                ) || 0,
-            })
-          }
-          onBlur={() => {
-            if (
-              maxQty != null &&
-              (
-                item.quantity ??
-                0
-              ) > maxQty
-            ) {
-              onPatch({
-                quantity:
-                  maxQty,
-              })
-            }
-          }}
-        />
-      </div>
-
-      {/* PRICE */}
-
-      <div className="col-span-4 sm:col-span-2">
-
-        <Input
-          label={
-            showLabels
-              ? t(
-                  'orderForm.price',
-                )
-              : undefined
-          }
-          type="number"
-          min={0}
-          step="0.01"
-          value={
-            item.price || ''
-          }
-          onChange={(
-            event,
-          ) =>
-            onPatch({
-              price:
-                Number(
-                  event.target.value,
-                ) || 0,
-            })
-          }
-        />
-      </div>
-
-      {/* LINE TOTAL */}
-
-      <div className="col-span-3 sm:col-span-2 text-right">
-
-        {showLabels && (
-          <p className="block text-sm font-medium text-gray-700 mb-1">
-            {t(
-              'orderForm.lineTotal',
-            )}
-          </p>
-        )}
-
-        <div className="h-9 px-3 inline-flex items-center justify-end w-full rounded-lg bg-gray-50 border border-gray-100 text-sm font-medium text-gray-800">
-          {lineTotal > 0
-            ? formatCurrency(
-                lineTotal,
-              )
-            : '—'}
-        </div>
-      </div>
-
-      {/* DELETE */}
-
-      <div className="col-span-1 flex justify-end">
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-9 w-9 p-0 text-red-500 hover:bg-red-50"
-          onClick={onRemove}
-          title={t(
-            'common.delete',
-          )}
-          aria-label={`remove item ${
-            index + 1
-          }`}
-        >
-          <Trash2
-            size={14}
-          />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================
 // MODE BUTTON
 // ============================================================
 
@@ -1522,30 +877,5 @@ function ModeButton({
     >
       {label}
     </button>
-  )
-}
-
-// ============================================================
-// SUMMARY ROW
-// ============================================================
-
-function Row({
-  label,
-  value,
-}: {
-  label: string
-  value: string
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-
-      <span className="text-blue-900/70">
-        {label}
-      </span>
-
-      <span className="text-blue-900 font-medium">
-        {value}
-      </span>
-    </div>
   )
 }

@@ -18,6 +18,17 @@ const Client = sequelize.define("Client", {
     allowNull: false,
     unique: true,
   },
+
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+
+  // Мижозга охирги автоматик СМС юборилган вақт (эслатма даври шундан саналади)
+  lastSmsAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
 });
 
 module.exports = Client;

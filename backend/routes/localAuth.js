@@ -9,6 +9,31 @@ const LocalUser = require('../models/localUser');
 const ADMIN_API_URL =
   process.env.ADMIN_API_URL ||
   "https://blissmebel.uz/api";
+const authMiddleware =
+  require("../middlewares/authorization");
+
+const {
+  CLOCK_TOLERANCE_MS,
+  touchLastSeen,
+} = require("../services/licenseClock");
+
+// Локал сессия токени (12 соат)
+function signSession(localUser) {
+  return jwt.sign(
+    {
+      localUserId: localUser.id,
+      ownerId: localUser.ownerId,
+      username: localUser.username,
+      companyName: localUser.companyName,
+      type: "local-session",
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "12h",
+    }
+  );
+}
+
 async function verifyLocalLicense(localUser) {
   // ==========================================================
   // ADMIN CRM API
@@ -111,6 +136,25 @@ async function verifyLocalLicense(localUser) {
     // barchasi loginni to'xtatadi.
     // ========================================================
 
+    // ========================================================
+    // VAQTINCHALIK SERVER XATOSI
+    //
+    // 5xx (masalan deploy paytidagi 502), 429 yoki kodsiz
+    // xato javobi litsenziya rad etilgani emas. Bunday holda
+    // lokal statusni buzmaymiz va offline tekshiruvga o'tamiz.
+    // ========================================================
+
+    const isTransientError =
+      response.status >= 500 ||
+      response.status === 429 ||
+      (!response.ok && !result.code);
+
+    if (isTransientError) {
+      throw new Error(
+        `Admin API vaqtincha javob bermadi (HTTP ${response.status})`
+      );
+    }
+
     if (
       !response.ok ||
       result.success === false
@@ -146,7 +190,7 @@ async function verifyLocalLicense(localUser) {
 
           message:
             result.message ||
-            "Hisob bloklangan",
+            "Ҳисоб блокланган",
         };
       }
 
@@ -172,7 +216,7 @@ async function verifyLocalLicense(localUser) {
 
           message:
             result.message ||
-            "Litsenziya bloklangan",
+            "Лицензия блокланган",
         };
       }
 
@@ -198,7 +242,7 @@ async function verifyLocalLicense(localUser) {
 
           message:
             result.message ||
-            "Litsenziya muddati tugagan",
+            "Лицензия муддати тугаган",
         };
       }
 
@@ -220,7 +264,7 @@ async function verifyLocalLicense(localUser) {
 
         message:
           result.message ||
-          "Litsenziya tasdiqlanmadi",
+          "Лицензия тасдиқланмади",
       };
     }
 
@@ -245,7 +289,7 @@ async function verifyLocalLicense(localUser) {
           "INVALID_LICENSE_RESPONSE",
 
         message:
-          "Serverdan litsenziya maʼlumotlari noto‘g‘ri keldi",
+          "Сервердан лицензия маълумотлари нотўғри келди",
       };
     }
 
@@ -298,7 +342,7 @@ async function verifyLocalLicense(localUser) {
           "LICENSE_EXPIRED",
 
         message:
-          "Litsenziya muddati noto‘g‘ri",
+          "Лицензия муддати нотўғри",
       };
     }
 
@@ -320,7 +364,7 @@ async function verifyLocalLicense(localUser) {
           "LICENSE_EXPIRED",
 
         message:
-          "Litsenziya muddati tugagan",
+          "Лицензия муддати тугаган",
       };
     }
 
@@ -347,7 +391,7 @@ async function verifyLocalLicense(localUser) {
           "LICENSE_INACTIVE",
 
         message:
-          "Litsenziya faol emas",
+          "Лицензия фаол эмас",
       };
     }
 
@@ -358,6 +402,11 @@ async function verifyLocalLicense(localUser) {
     console.log(
       "[LICENSE] ACTIVE - access allowed"
     );
+
+    // Сервер тасдиқлади: соат белгиси ҳозирги вақтга қайта ўрнатилади
+    await touchLastSeen(localUser, {
+      reset: true,
+    });
 
     return {
       allowed: true,
@@ -412,7 +461,7 @@ async function verifyLocalLicense(localUser) {
         "LICENSE_NOT_FOUND",
 
       message:
-        "Litsenziya maʼlumoti topilmadi",
+        "Лицензия маълумоти топилмади",
     };
   }
 
@@ -439,13 +488,50 @@ async function verifyLocalLicense(localUser) {
         "LICENSE_EXPIRED",
 
       message:
-        "Litsenziya muddati noto‘g‘ri",
+        "Лицензия муддати нотўғри",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // СОАТ ОРҚАГА СУРИЛГАНМИ?
+  //
+  // Дастур охирги марта ишлаган вақт сақланади. Компьютер соати
+  // ундан орқада бўлса, лицензия муддатини алдаш мумкин бўлади,
+  // шунинг учун интернетсиз киришга рухсат берилмайди.
+  // ----------------------------------------------------------
+
+  const lastSeen =
+    localUser.lastSeenAt
+      ? new Date(
+          localUser.lastSeenAt
+        ).getTime()
+      : 0;
+
+  if (
+    lastSeen &&
+    Date.now() + CLOCK_TOLERANCE_MS <
+      lastSeen
+  ) {
+    console.warn(
+      "[LICENSE] Clock moved backwards"
+    );
+
+    return {
+      allowed: false,
+
+      online: false,
+
+      code:
+        "CLOCK_TAMPERED",
+
+      message:
+        "Компьютер соати орқага сурилган. Соатни тўғриланг ёки интернетга уланиб, қайта уриниб кўринг.",
     };
   }
 
   if (
     expiresAt.getTime() <=
-    Date.now()
+    Math.max(Date.now(), lastSeen)
   ) {
     return {
       allowed: false,
@@ -456,7 +542,7 @@ async function verifyLocalLicense(localUser) {
         "LICENSE_EXPIRED",
 
       message:
-        "Litsenziya muddati tugagan",
+        "Лицензия муддати тугаган. Узайтирилган бўлса, интернетга уланиб қайта уриниб кўринг.",
     };
   }
 
@@ -480,7 +566,7 @@ async function verifyLocalLicense(localUser) {
         "LICENSE_BLOCKED",
 
       message:
-        "Litsenziya bloklangan",
+        "Лицензия блокланган",
     };
   }
 
@@ -497,7 +583,7 @@ async function verifyLocalLicense(localUser) {
         "LICENSE_INACTIVE",
 
       message:
-        "Litsenziya faol emas",
+        "Лицензия фаол эмас",
     };
   }
 
@@ -508,6 +594,8 @@ async function verifyLocalLicense(localUser) {
   console.log(
     "[LICENSE] OFFLINE ACTIVE - access allowed"
   );
+
+  await touchLastSeen(localUser);
 
   return {
     allowed: true,
@@ -597,17 +685,109 @@ router.post("/setup-pin", async (req, res) => {
   try {
     const {
       pin,
-      owner,
-      license,
+      owner: clientOwner,
+      license: clientLicense,
+      backupToken: clientBackupToken,
     } = req.body;
 
     if (!/^\d{4}$/.test(String(pin))) {
       return res.status(400).json({
         success: false,
         message:
-          "PIN aynan 4 xonali son bo'lishi kerak",
+          "ПИН айнан 4 хонали сон бўлиши керак",
       });
     }
+
+    // Lokal foydalanuvchi allaqachon sozlangan bo'lsa, PIN ni
+    // eski PIN siz qayta yozib bo'lmaydi.
+    const existingUser =
+      await LocalUser.findOne();
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        code: "ALREADY_INITIALIZED",
+        message:
+          "Дастур аллақачон созланган. ПИН код билан киринг.",
+      });
+    }
+
+    if (
+      !clientOwner?.id ||
+      !clientLicense?.id
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Эга ёки лицензия маълумотлари тўлиқ эмас",
+      });
+    }
+
+    // Client yuborgan ma'lumotga ishonmaymiz: owner va license
+    // Admin serverdan qayta olinadi va faqat o'sha saqlanadi.
+    let verified;
+
+    try {
+      const response = await fetch(
+        `${
+          process.env.ADMIN_API_URL ||
+          ADMIN_API_URL
+        }/auth/verify-license`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            ownerId: clientOwner.id,
+            licenseId: clientLicense.id,
+          }),
+          signal:
+            AbortSignal.timeout(8000),
+        }
+      );
+
+      verified = {
+        ok: response.ok,
+        result: await response
+          .json()
+          .catch(() => ({})),
+      };
+    } catch (networkError) {
+      console.error(
+        "SETUP PIN LICENSE CHECK ERROR:",
+        networkError
+      );
+
+      return res.status(503).json({
+        success: false,
+        code: "ADMIN_UNREACHABLE",
+        message:
+          "Лицензия серверига уланиб бўлмади. Интернетни текшириб, қайта уриниб кўринг.",
+      });
+    }
+
+    if (
+      !verified.ok ||
+      verified.result.success === false ||
+      !verified.result.owner ||
+      !verified.result.license
+    ) {
+      return res.status(403).json({
+        success: false,
+        code:
+          verified.result.code ||
+          "LICENSE_REJECTED",
+        message:
+          verified.result.message ||
+          "Лицензия тасдиқланмади",
+      });
+    }
+
+    const owner = verified.result.owner;
+    const license = verified.result.license;
 
     if (
       !owner?.id ||
@@ -617,7 +797,7 @@ router.post("/setup-pin", async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Owner ma'lumotlari to'liq emas",
+          "Эга маълумотлари тўлиқ эмас",
       });
     }
 
@@ -630,14 +810,14 @@ router.post("/setup-pin", async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "License ma'lumotlari to'liq emas",
+          "Лицензия маълумотлари тўлиқ эмас",
       });
     }
 
     if (license.status !== "active") {
       return res.status(403).json({
         success: false,
-        message: "License faol emas",
+        message: "Лицензия фаол эмас",
       });
     }
 
@@ -651,7 +831,7 @@ router.post("/setup-pin", async (req, res) => {
       return res.status(403).json({
         success: false,
         message:
-          "License muddati tugagan",
+          "Лицензия муддати тугаган",
       });
     }
 
@@ -681,6 +861,14 @@ router.post("/setup-pin", async (req, res) => {
             license.expiresAt,
           licenseStatus:
             license.status,
+
+          // Логин пайтида сервер берган захира нусха калити
+          backupToken:
+            typeof clientBackupToken ===
+              "string" &&
+            clientBackupToken
+              ? clientBackupToken
+              : null,
         });
     } else {
       // Agar mavjud bo'lsa PIN yangilanadi
@@ -707,7 +895,7 @@ if (!JWT_SECRET) {
   return res.status(500).json({
     success: false,
     code: "JWT_SECRET_NOT_CONFIGURED",
-    message: "JWT_SECRET sozlanmagan",
+    message: "JWT_SECRET созланмаган",
   });
 }
 
@@ -727,7 +915,7 @@ const token = jwt.sign(
 
 return res.status(201).json({
   success: true,
-  message: "PIN lokal bazaga saqlandi",
+  message: "ПИН локал базага сақланди",
 
   token,
 
@@ -768,7 +956,7 @@ router.post('/login-pin', async (req, res) => {
       return res.status(400).json({
         success: false,
         code: 'PIN_REQUIRED',
-        message: 'PIN kod kiriting',
+        message: 'ПИН код киритинг',
       });
     }
 
@@ -780,7 +968,7 @@ router.post('/login-pin', async (req, res) => {
       return res.status(400).json({
         success: false,
         code: 'PIN_INVALID_FORMAT',
-        message: 'PIN aynan 4 xonali son bo‘lishi kerak',
+        message: 'ПИН айнан 4 хонали сон бўлиши керак',
       });
     }
 
@@ -794,7 +982,7 @@ router.post('/login-pin', async (req, res) => {
       return res.status(404).json({
         success: false,
         code: 'LOCAL_USER_NOT_FOUND',
-        message: 'Lokal foydalanuvchi topilmadi',
+        message: 'Локал фойдаланувчи топилмади',
       });
     }
 
@@ -806,7 +994,7 @@ router.post('/login-pin', async (req, res) => {
       return res.status(403).json({
         success: false,
         code: 'PIN_NOT_CONFIGURED',
-        message: 'PIN kod hali yaratilmagan',
+        message: 'ПИН код ҳали яратилмаган',
       });
     }
 
@@ -823,7 +1011,7 @@ router.post('/login-pin', async (req, res) => {
       return res.status(401).json({
         success: false,
         code: 'PIN_INVALID',
-        message: 'PIN kod noto‘g‘ri',
+        message: 'ПИН код нотўғри',
       });
     }
 
@@ -848,7 +1036,7 @@ router.post('/login-pin', async (req, res) => {
           'LICENSE_DENIED',
         message:
           licenseCheck.message ||
-          'Litsenziyadan foydalanishga ruxsat yo‘q',
+          'Лицензиядан фойдаланишга рухсат йўқ',
         online: licenseCheck.online,
       });
     }
@@ -862,14 +1050,14 @@ router.post('/login-pin', async (req, res) => {
 
     if (!JWT_SECRET) {
       console.error(
-        'JWT_SECRET backend/.env ichida topilmadi'
+        'JWT_SECRET backend/.env ичида топилмади'
       );
 
       return res.status(500).json({
         success: false,
         code: 'JWT_SECRET_NOT_CONFIGURED',
         message:
-          'Lokal autentifikatsiya sozlanmagan',
+          'Локал аутентификация созланмаган',
       });
     }
 
@@ -897,7 +1085,7 @@ router.post('/login-pin', async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Tizimga muvaffaqiyatli kirildi',
+      message: 'Тизимга муваффақиятли кирилди',
 
       token,
 
@@ -926,6 +1114,325 @@ router.post('/login-pin', async (req, res) => {
     });
   }
 }); 
+// ============================================================
+// 4. ПИН УНУТИЛГАНДА — ЛОГИН ВА ПАРОЛ БИЛАН ТИКЛАШ
+//
+// Логин/парол Admin CRM серверида текширилади (интернет керак).
+// Фақат шу дастур боғланган ҳисоб эгаси ПИНни алмаштира олади.
+// ============================================================
+
+router.post("/reset-pin", async (req, res) => {
+  try {
+    const { username, password, pin } =
+      req.body;
+
+    if (
+      typeof username !== "string" ||
+      !username.trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Логин ва паролни киритинг",
+      });
+    }
+
+    if (!/^\d{4}$/.test(String(pin))) {
+      return res.status(400).json({
+        success: false,
+        code: "PIN_INVALID_FORMAT",
+        message:
+          "ПИН айнан 4 хонали сон бўлиши керак",
+      });
+    }
+
+    const localUser =
+      await LocalUser.findOne();
+
+    if (!localUser) {
+      return res.status(404).json({
+        success: false,
+        code: "LOCAL_USER_NOT_FOUND",
+        message:
+          "Локал фойдаланувчи топилмади",
+      });
+    }
+
+    let response;
+    let result = {};
+
+    try {
+      response = await fetch(
+        `${
+          process.env.ADMIN_API_URL ||
+          ADMIN_API_URL
+        }/auth/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            username: username.trim(),
+            password,
+          }),
+          signal:
+            AbortSignal.timeout(8000),
+        }
+      );
+
+      result = await response
+        .json()
+        .catch(() => ({}));
+    } catch (networkError) {
+      console.error(
+        "RESET PIN ADMIN ERROR:",
+        networkError.message
+      );
+
+      return res.status(503).json({
+        success: false,
+        code: "ADMIN_UNREACHABLE",
+        message:
+          "Серверга уланиб бўлмади. ПИНни тиклаш учун интернет керак.",
+      });
+    }
+
+    if (response.status === 429) {
+      return res.status(429).json({
+        success: false,
+        code: "TOO_MANY_REQUESTS",
+        message:
+          "Жуда кўп уриниш. Бироздан сўнг қайта уриниб кўринг.",
+      });
+    }
+
+    // Сервернинг вақтинчалик хатоси — логин/парол нотўғри дегани эмас
+    if (response.status >= 500) {
+      return res.status(503).json({
+        success: false,
+        code: "ADMIN_UNREACHABLE",
+        message:
+          "Серверда вақтинча хатолик. Бироздан сўнг қайта уриниб кўринг.",
+      });
+    }
+
+    if (
+      !response.ok ||
+      result.success === false ||
+      !result.owner
+    ) {
+      const code = result.code;
+
+      const message =
+        code === "OWNER_BLOCKED"
+          ? "Ҳисоб блокланган"
+          : code === "LICENSE_NOT_FOUND"
+            ? "Лицензия топилмади"
+            : code === "LICENSE_INACTIVE" ||
+                code === "LICENSE_BLOCKED"
+              ? "Лицензия фаол эмас"
+              : code === "LICENSE_EXPIRED"
+                ? "Лицензия муддати тугаган"
+                : "Логин ёки парол нотўғри";
+
+      return res
+        .status(
+          response.status >= 500
+            ? 503
+            : 401
+        )
+        .json({
+          success: false,
+          code:
+            code ||
+            "INVALID_CREDENTIALS",
+          message,
+        });
+    }
+
+    // Бошқа ҳисобнинг логини билан бу дастур ПИНини алмаштириб бўлмайди
+    if (
+      String(result.owner.id) !==
+      String(localUser.ownerId)
+    ) {
+      return res.status(403).json({
+        success: false,
+        code: "OWNER_MISMATCH",
+        message:
+          "Бу логин ушбу дастурга тегишли эмас",
+      });
+    }
+
+    const updateData = {
+      pinHash: await bcrypt.hash(
+        String(pin),
+        10
+      ),
+    };
+
+    // Сервердан келган янги лицензия маълумотлари ҳам сақланади
+    if (
+      result.license?.id &&
+      result.license?.expiresAt
+    ) {
+      updateData.licenseId =
+        result.license.id;
+      updateData.licenseStartsAt =
+        result.license.startsAt;
+      updateData.licenseExpiresAt =
+        result.license.expiresAt;
+      updateData.licenseStatus =
+        result.license.status;
+    }
+
+    if (result.owner.companyName) {
+      updateData.companyName =
+        result.owner.companyName;
+    }
+
+    if (result.owner.username) {
+      updateData.username =
+        result.owner.username;
+    }
+
+    // Захира нусха калити ҳам янгиланади
+    if (result.backupToken) {
+      updateData.backupToken =
+        result.backupToken;
+    }
+
+    await localUser.update(updateData);
+
+    await touchLastSeen(localUser, {
+      reset: true,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "ПИН код янгиланди",
+
+      token: signSession(localUser),
+
+      user: {
+        id: localUser.id,
+        ownerId: localUser.ownerId,
+        username: localUser.username,
+        companyName:
+          localUser.companyName,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "RESET PIN ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      code: "SERVER_ERROR",
+      message: error.message,
+    });
+  }
+});
+
+// ============================================================
+// 5. ДАСТУР ИЧИДА ПИННИ ЎЗГАРТИРИШ (жорий ПИН билан)
+// ============================================================
+
+router.post(
+  "/change-pin",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { currentPin, newPin } =
+        req.body;
+
+      if (
+        !/^\d{4}$/.test(
+          String(newPin)
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          code: "PIN_INVALID_FORMAT",
+          message:
+            "Янги ПИН айнан 4 хонали сон бўлиши керак",
+        });
+      }
+
+      const localUser =
+        await LocalUser.findOne();
+
+      if (
+        !localUser ||
+        !localUser.pinHash
+      ) {
+        return res.status(404).json({
+          success: false,
+          code: "LOCAL_USER_NOT_FOUND",
+          message:
+            "Локал фойдаланувчи топилмади",
+        });
+      }
+
+      const isCurrentValid =
+        await bcrypt.compare(
+          String(currentPin || ""),
+          localUser.pinHash
+        );
+
+      if (!isCurrentValid) {
+        return res.status(400).json({
+          success: false,
+          code: "PIN_INVALID",
+          message:
+            "Жорий ПИН код нотўғри",
+        });
+      }
+
+      if (
+        String(currentPin) ===
+        String(newPin)
+      ) {
+        return res.status(400).json({
+          success: false,
+          code: "PIN_SAME",
+          message:
+            "Янги ПИН жорийсидан фарқ қилиши керак",
+        });
+      }
+
+      await localUser.update({
+        pinHash: await bcrypt.hash(
+          String(newPin),
+          10
+        ),
+      });
+
+      return res.json({
+        success: true,
+        message: "ПИН код ўзгартирилди",
+      });
+    } catch (error) {
+      console.error(
+        "CHANGE PIN ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        code: "SERVER_ERROR",
+        message: error.message,
+      });
+    }
+  }
+);
+
 router.get('/check-license', async (req, res) => {
   try {
     const localUser = await LocalUser.findOne();
@@ -934,7 +1441,7 @@ router.get('/check-license', async (req, res) => {
       return res.status(404).json({
         success: false,
         initialized: false,
-        message: 'Lokal foydalanuvchi topilmadi',
+        message: 'Локал фойдаланувчи топилмади',
       });
     }
 

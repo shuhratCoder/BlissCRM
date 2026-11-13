@@ -15,6 +15,7 @@ import {
   setupPinRequest,
   getLocalStatus,
   loginWithPin,
+  resetPinRequest,
   LicenseCheckError,
   type LoginResponse,
 } from "@/lib/api";
@@ -22,7 +23,12 @@ import {
 import { Button, Input } from "@/components/ui";
 import { useRouter } from "next/navigation";
 
-type Step = "checking" | "login" | "create-pin" | "pin-login";
+type Step =
+  | "checking"
+  | "login"
+  | "create-pin"
+  | "pin-login"
+  | "reset-pin";
 
 const LICENSE_ERROR_CODES = [
   "LICENSE_BLOCKED",
@@ -30,6 +36,7 @@ const LICENSE_ERROR_CODES = [
   "OWNER_BLOCKED",
   "LICENSE_EXPIRED",
   "LICENSE_NOT_FOUND",
+  "CLOCK_TAMPERED",
 ];
 
 export default function LoginPage() {
@@ -57,6 +64,11 @@ export default function LoginPage() {
   const [confirmPin, setConfirmPin] = React.useState("");
 
   const [isSavingPin, setIsSavingPin] = React.useState(false);
+
+  // ПИН унутилганда: логин ва парол билан тиклаш
+  const [resetUsername, setResetUsername] = React.useState("");
+
+  const [resetPassword, setResetPassword] = React.useState("");
 
   const schema = React.useMemo(() => buildLoginSchema(t), [t]);
 
@@ -108,7 +120,7 @@ export default function LoginPage() {
         console.error("LOCAL STATUS ERROR:", e);
 
         setError(
-          e instanceof Error ? e.message : "Lokal bazani tekshirishda xatolik",
+          e instanceof Error ? e.message : "Локал базани текширишда хатолик",
         );
 
         setStep("checking");
@@ -139,25 +151,25 @@ export default function LoginPage() {
       const response = await loginRequest(data.username, data.password);
 
       if (!response.owner) {
-        throw new Error("Foydalanuvchi ma’lumotlari topilmadi");
+        throw new Error("Фойдаланувчи маълумотлари топилмади");
       }
 
       if (!response.license) {
-        throw new Error("Litsenziya topilmadi");
+        throw new Error("Лицензия топилмади");
       }
 
       if (response.license.status !== "active") {
-        throw new Error("Litsenziya faol emas");
+        throw new Error("Лицензия фаол эмас");
       }
 
       const expiresAt = new Date(response.license.expiresAt);
 
       if (Number.isNaN(expiresAt.getTime())) {
-        throw new Error("Litsenziya muddati noto‘g‘ri");
+        throw new Error("Лицензия муддати нотўғри");
       }
 
       if (expiresAt.getTime() <= Date.now()) {
-        throw new Error("Litsenziya muddati tugagan");
+        throw new Error("Лицензия муддати тугаган");
       }
 
       setLoginData(response);
@@ -181,19 +193,19 @@ export default function LoginPage() {
     setError("");
 
     if (!loginData) {
-      setError("Login ma’lumotlari topilmadi");
+      setError("Логин маълумотлари топилмади");
 
       return;
     }
 
     if (!/^\d{4}$/.test(pin)) {
-      setError("PIN aynan 4 xonali son bo‘lishi kerak");
+      setError("ПИН айнан 4 хонали сон бўлиши керак");
 
       return;
     }
 
     if (pin !== confirmPin) {
-      setError("PIN kodlar bir xil emas");
+      setError("ПИН кодлар бир хил эмас");
 
       return;
     }
@@ -201,13 +213,16 @@ export default function LoginPage() {
     setIsSavingPin(true);
 
     try {
-      await setupPinRequest({
+      const setup = await setupPinRequest({
         pin,
         owner: loginData.owner,
         license: loginData.license,
+        backupToken: loginData.backupToken,
       });
 
+      // Lokal backend faqat o'zi bergan tokenni qabul qiladi.
       const token =
+        setup.token ??
         loginData.token ??
         loginData.licenseToken ??
         `local-${loginData.owner.id}`;
@@ -227,7 +242,7 @@ export default function LoginPage() {
 
       router.replace("/dashboard");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "PIN saqlashda xatolik");
+      setError(e instanceof Error ? e.message : "ПИН сақлашда хатолик");
     } finally {
       setIsSavingPin(false);
     }
@@ -247,7 +262,7 @@ const handlePinLogin = async (
 
   if (!/^\d{4}$/.test(pin)) {
     setError(
-      "PIN aynan 4 xonali son bo‘lishi kerak"
+      "ПИН айнан 4 хонали сон бўлиши керак"
     );
 
     return;
@@ -286,12 +301,17 @@ const handlePinLogin = async (
       e
     );
 
+    // Фақат лицензия билан боғлиқ хатолар алоҳида экранда кўрсатилади;
+    // нотўғри ПИН каби хатолар шу форманинг ўзида чиқади.
     if (
-      e instanceof LicenseCheckError
+      e instanceof LicenseCheckError &&
+      LICENSE_ERROR_CODES.includes(
+        e.code ?? ""
+      )
     ) {
       setAuthError(
         e.message ||
-          "Litsenziya bilan bog‘liq muammo mavjud",
+          "Лицензия билан боғлиқ муаммо мавжуд",
 
         e.code ||
           "LICENSE_INACTIVE"
@@ -305,12 +325,74 @@ const handlePinLogin = async (
     setError(
       e instanceof Error
         ? e.message
-        : "PIN kod noto‘g‘ri"
+        : "ПИН код нотўғри"
     );
   } finally {
     setIsSavingPin(false);
   }
 };
+  // ==========================================================
+  // RESET PIN (ПИН эсдан чиққанда)
+  // ==========================================================
+
+  const handleResetPin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setError("");
+    clearAuthError();
+
+    if (!resetUsername.trim() || !resetPassword) {
+      setError("Логин ва паролни киритинг");
+
+      return;
+    }
+
+    if (!/^\d{4}$/.test(pin)) {
+      setError("ПИН айнан 4 хонали сон бўлиши керак");
+
+      return;
+    }
+
+    if (pin !== confirmPin) {
+      setError("ПИН кодлар бир хил эмас");
+
+      return;
+    }
+
+    setIsSavingPin(true);
+
+    try {
+      const response = await resetPinRequest(
+        resetUsername.trim(),
+        resetPassword,
+        pin,
+      );
+
+      setAdmin(
+        {
+          id: response.user.id,
+
+          name: response.user.companyName || response.user.username,
+
+          email: `${response.user.username}@local.crm`,
+
+          createdAt: new Date().toISOString(),
+        },
+        response.token,
+      );
+
+      setPin("");
+      setConfirmPin("");
+      setResetPassword("");
+
+      router.replace("/dashboard");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ПИН кодни тиклашда хатолик");
+    } finally {
+      setIsSavingPin(false);
+    }
+  };
+
   // ==========================================================
   // RETRY LICENSE
   // ==========================================================
@@ -379,16 +461,18 @@ const handlePinLogin = async (
 
               <h1 className="text-lg font-semibold text-gray-900">
                 {authErrorCode === "LICENSE_EXPIRED"
-                  ? "Litsenziya muddati tugagan"
+                  ? "Лицензия муддати тугаган"
                   : authErrorCode === "OWNER_BLOCKED"
-                    ? "Hisob bloklangan"
-                    : "Tizimga kirish bloklangan"}
+                    ? "Ҳисоб блокланган"
+                    : authErrorCode === "CLOCK_TAMPERED"
+                      ? "Компьютер соати нотўғри"
+                      : "Тизимга кириш блокланган"}
               </h1>
 
               <p className="text-sm text-gray-500 mt-2">{authError}</p>
 
               <p className="text-xs text-gray-400 mt-3">
-                Administrator bilan bog‘laning
+                Администратор билан боғланинг
               </p>
 
               <button
@@ -396,7 +480,7 @@ const handlePinLogin = async (
                 onClick={handleRetryLicense}
                 className="mt-6 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
-                Qayta tekshirish
+                Қайта текшириш
               </button>
             </div>
           </div>
@@ -414,11 +498,11 @@ const handlePinLogin = async (
                   </div>
 
                   <h1 className="text-lg font-semibold text-gray-900">
-                    Tekshirilmoqda
+                    Текширилмоқда
                   </h1>
 
                   <p className="text-xs text-gray-400 mt-2">
-                    Lokal ma’lumotlar tekshirilmoqda
+                    Локал маълумотлар текширилмоқда
                   </p>
                 </div>
 
@@ -504,11 +588,11 @@ const handlePinLogin = async (
 
                   <div>
                     <h1 className="text-lg font-semibold text-gray-900">
-                      PIN kod yarating
+                      ПИН код яратинг
                     </h1>
 
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Keyingi kirishlar uchun
+                      Кейинги киришлар учун
                     </p>
                   </div>
                 </div>
@@ -525,7 +609,7 @@ const handlePinLogin = async (
 
                 <form onSubmit={handleCreatePin} className="space-y-4">
                   <Input
-                    label="4 xonali PIN"
+                    label="4 хонали ПИН"
                     type="password"
                     inputMode="numeric"
                     autoComplete="new-password"
@@ -539,7 +623,7 @@ const handlePinLogin = async (
                   />
 
                   <Input
-                    label="PIN kodni takrorlang"
+                    label="ПИН кодни такрорланг"
                     type="password"
                     inputMode="numeric"
                     autoComplete="new-password"
@@ -562,7 +646,7 @@ const handlePinLogin = async (
                     className="w-full"
                     loading={isSavingPin}
                   >
-                    PIN yaratish
+                    ПИН яратиш
                   </Button>
 
                   <button
@@ -576,7 +660,7 @@ const handlePinLogin = async (
                     }}
                     className="w-full text-xs text-gray-500 hover:text-gray-700 py-2"
                   >
-                    Orqaga qaytish
+                    Орқага қайтиш
                   </button>
                 </form>
               </>
@@ -595,18 +679,18 @@ const handlePinLogin = async (
 
                   <div>
                     <h1 className="text-lg font-semibold text-gray-900">
-                      PIN kodni kiriting
+                      ПИН кодни киритинг
                     </h1>
 
                     <p className="text-xs text-gray-400 mt-0.5">
-                      CRM tizimiga kirish
+                      CRM тизимига кириш
                     </p>
                   </div>
                 </div>
 
                 <form onSubmit={handlePinLogin} className="space-y-4">
                   <Input
-                    label="4 xonali PIN"
+                    label="4 хонали ПИН"
                     type="password"
                     inputMode="numeric"
                     autoComplete="off"
@@ -634,8 +718,121 @@ const handlePinLogin = async (
                     className="w-full"
                     loading={isSavingPin}
                   >
-                    Kirish
+                    Кириш
                   </Button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep("reset-pin");
+                      setPin("");
+                      setConfirmPin("");
+                      setResetPassword("");
+                      setError("");
+                    }}
+                    className="w-full text-xs text-blue-600 hover:text-blue-700 py-2"
+                  >
+                    ПИН код эсдан чиқдими?
+                  </button>
+                </form>
+              </>
+            )}
+
+            {/* ============================================== */}
+            {/* RESET PIN */}
+            {/* ============================================== */}
+
+            {step === "reset-pin" && (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                    <LockKeyhole size={20} className="text-blue-600" />
+                  </div>
+
+                  <div>
+                    <h1 className="text-lg font-semibold text-gray-900">
+                      ПИН кодни тиклаш
+                    </h1>
+
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Дастурни биринчи марта ўрнатгандаги логин ва
+                      паролни киритинг. Интернет керак.
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleResetPin} className="space-y-4">
+                  <Input
+                    label={t("login.username")}
+                    type="text"
+                    autoComplete="username"
+                    value={resetUsername}
+                    onChange={(event) => setResetUsername(event.target.value)}
+                    autoFocus
+                  />
+
+                  <Input
+                    label={t("login.password")}
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                  />
+
+                  <Input
+                    label="Янги 4 хонали ПИН"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="new-password"
+                    maxLength={4}
+                    placeholder="••••"
+                    value={pin}
+                    onChange={(event) =>
+                      setPin(normalizePin(event.target.value))
+                    }
+                  />
+
+                  <Input
+                    label="ПИН кодни такрорланг"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="new-password"
+                    maxLength={4}
+                    placeholder="••••"
+                    value={confirmPin}
+                    onChange={(event) =>
+                      setConfirmPin(normalizePin(event.target.value))
+                    }
+                  />
+
+                  {error && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                      {error}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    loading={isSavingPin}
+                  >
+                    ПИНни янгилаш ва кириш
+                  </Button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep("pin-login");
+                      setPin("");
+                      setConfirmPin("");
+                      setResetPassword("");
+                      setError("");
+                    }}
+                    className="w-full text-xs text-gray-500 hover:text-gray-700 py-2"
+                  >
+                    Орқага қайтиш
+                  </button>
                 </form>
               </>
             )}

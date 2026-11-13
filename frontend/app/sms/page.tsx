@@ -33,6 +33,8 @@ import {
   sendSmsMessages,
 
   type SendSmsMessage,
+  type SmsProvider,
+  type SmsSettingsData,
 } from '@/lib/api'
 
 import {
@@ -131,7 +133,7 @@ function renderTemplatePreview(
             key={index}
             className="font-semibold text-gray-900"
           >
-            {'{mijozning ismi}'}
+            {'{мижознинг исми}'}
           </strong>
         )
       }
@@ -144,7 +146,7 @@ function renderTemplatePreview(
             key={index}
             className="font-semibold text-gray-900"
           >
-            {'{qarz miqdori}'}
+            {'{қарз миқдори}'}
           </strong>
         )
       }
@@ -220,11 +222,66 @@ export default function SmsPanelPage() {
     setShowPassword,
   ] = React.useState(false)
 
+  // Юбориш усули: Эскиз ёки ўз Android телефони (SMSGate)
+  const [
+    provider,
+    setProvider,
+  ] = React.useState<SmsProvider>('eskiz')
+
+  const [
+    androidUrl,
+    setAndroidUrl,
+  ] = React.useState('')
+
+  const [
+    providerLogins,
+    setProviderLogins,
+  ] = React.useState<Record<SmsProvider, string>>({
+    eskiz: '',
+    android: '',
+  })
+
+  const [
+    providerHasPasswords,
+    setProviderHasPasswords,
+  ] = React.useState<Record<SmsProvider, boolean>>({
+    eskiz: false,
+    android: false,
+  })
+
+  // Автоматик СМС
+  const [
+    orderSmsEnabled,
+    setOrderSmsEnabled,
+  ] = React.useState(false)
+
+  const [
+    orderSmsTemplate,
+    setOrderSmsTemplate,
+  ] = React.useState('')
+
+  const [
+    reminderEnabled,
+    setReminderEnabled,
+  ] = React.useState(false)
+
+  const [
+    reminderDays,
+    setReminderDays,
+  ] = React.useState(7)
+
+  const isAndroid =
+    provider === 'android'
+
+  const providerName = isAndroid
+    ? 'Телефон'
+    : 'Эскиз'
+
   const [
     smsTemplate,
     setSmsTemplate,
   ] = React.useState(
-    'Assalomu alaykum, {name}!\n\nSizning qarzingiz: {duty}.\n\nIltimos, to\'lovni amalga oshiring.',
+    'Ассалому алайкум, {name}!\n\nСизнинг қарзингиз: {duty}.\n\nИлтимос, тўловни амалга оширинг.',
   )
 
   // ----------------------------------------------------------
@@ -283,6 +340,77 @@ export default function SmsPanelPage() {
   // LOAD SMS SETTINGS
   // ==========================================================
 
+  const applySettings =
+    React.useCallback(
+      (settings: SmsSettingsData) => {
+        const activeProvider: SmsProvider =
+          settings.provider === 'android'
+            ? 'android'
+            : 'eskiz'
+
+        setProvider(activeProvider)
+
+        setAndroidUrl(
+          settings.androidUrl ?? '',
+        )
+
+        setEskizLogin(
+          settings.eskizLogin ?? '',
+        )
+
+        setHasSavedPassword(
+          Boolean(settings.hasPassword),
+        )
+
+        setProviderLogins(
+          settings.logins ?? {
+            eskiz: settings.eskizLogin ?? '',
+            android: '',
+          },
+        )
+
+        setProviderHasPasswords(
+          settings.hasPasswords ?? {
+            eskiz: Boolean(settings.hasPassword),
+            android: false,
+          },
+        )
+
+        setSmsTemplate(
+          settings.smsTemplate ?? '',
+        )
+
+        setOrderSmsEnabled(
+          Boolean(settings.orderSmsEnabled),
+        )
+
+        setOrderSmsTemplate(
+          settings.orderSmsTemplate ?? '',
+        )
+
+        setReminderEnabled(
+          Boolean(settings.reminderEnabled),
+        )
+
+        setReminderDays(
+          settings.reminderDays ?? 7,
+        )
+      },
+      [],
+    )
+
+  // Созламалар ойнасида усул алмаштирилганда шу усулнинг
+  // сақланган логини ва парол ҳолати кўрсатилади.
+  function switchProvider(next: SmsProvider) {
+    if (next === provider) return
+
+    setProvider(next)
+    setEskizLogin(providerLogins[next] ?? '')
+    setHasSavedPassword(Boolean(providerHasPasswords[next]))
+    setEskizPassword('')
+    setEskizConnected(false)
+  }
+
   const loadSmsSettings =
     React.useCallback(
       async () => {
@@ -294,22 +422,8 @@ export default function SmsPanelPage() {
           const response =
             await getSmsSettings()
 
-          setEskizLogin(
-            response.settings
-              .eskizLogin ?? '',
-          )
-
-          setHasSavedPassword(
-            Boolean(
-              response.settings
-                .hasPassword,
-            ),
-          )
-
-          setSmsTemplate(
-            response.settings
-              .smsTemplate ??
-              '',
+          applySettings(
+            response.settings,
           )
         } catch (error) {
           console.error(
@@ -320,7 +434,7 @@ export default function SmsPanelPage() {
           addToast({
             type: 'error',
             title:
-              'SMS sozlamalarini olishda xatolik',
+              'СМС созламаларини олишда хатолик',
           })
         } finally {
           setSettingsLoading(
@@ -328,7 +442,7 @@ export default function SmsPanelPage() {
           )
         }
       },
-      [addToast],
+      [addToast, applySettings],
     )
 
   // ==========================================================
@@ -351,12 +465,25 @@ export default function SmsPanelPage() {
 
   async function handleTestEskiz() {
     if (
+      isAndroid &&
+      !androidUrl.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Телефон манзилини киритинг',
+      })
+
+      return
+    }
+
+    if (
       !eskizLogin.trim()
     ) {
       addToast({
         type: 'warning',
         title:
-          'Eskiz loginini kiriting',
+          `${providerName} логинини киритинг`,
       })
 
       return
@@ -369,7 +496,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'Eskiz parolini kiriting',
+          `${providerName} паролини киритинг`,
       })
 
       return
@@ -385,6 +512,15 @@ export default function SmsPanelPage() {
           eskizLogin.trim(),
           eskizPassword.trim() ||
             undefined,
+          {
+            provider,
+            ...(isAndroid
+              ? {
+                  androidUrl:
+                    androidUrl.trim(),
+                }
+              : {}),
+          },
         )
 
       if (
@@ -397,10 +533,14 @@ export default function SmsPanelPage() {
         addToast({
           type: 'success',
           title:
-            'Eskiz akkaunti muvaffaqiyatli ulandi',
+            response.message ||
+            'Муваффақиятли уланди',
         })
 
-        await loadBalance()
+        // Баланс фақат Эскизда бор
+        if (!isAndroid) {
+          await loadBalance()
+        }
       }
     } catch (error) {
       console.error(
@@ -417,7 +557,7 @@ export default function SmsPanelPage() {
         title:
           error instanceof Error
             ? error.message
-            : 'Eskiz akkauntini tekshirishda xatolik',
+            : 'Уланишни текширишда хатолик',
       })
     } finally {
       setTestingEskiz(
@@ -432,12 +572,25 @@ export default function SmsPanelPage() {
 
   async function handleSaveSettings() {
     if (
+      isAndroid &&
+      !androidUrl.trim()
+    ) {
+      addToast({
+        type: 'warning',
+        title:
+          'Телефон манзилини киритинг',
+      })
+
+      return
+    }
+
+    if (
       !eskizLogin.trim()
     ) {
       addToast({
         type: 'warning',
         title:
-          'Eskiz loginini kiriting',
+          `${providerName} логинини киритинг`,
       })
 
       return
@@ -449,7 +602,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'SMS matnini kiriting',
+          'СМС матнини киритинг',
       })
 
       return
@@ -462,7 +615,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'Eskiz parolini kiriting',
+          `${providerName} паролини киритинг`,
       })
 
       return
@@ -475,6 +628,15 @@ export default function SmsPanelPage() {
     try {
       const response =
         await saveSmsSettings({
+          provider,
+
+          ...(isAndroid
+            ? {
+                androidUrl:
+                  androidUrl.trim(),
+              }
+            : {}),
+
           eskizLogin:
             eskizLogin.trim(),
 
@@ -487,11 +649,28 @@ export default function SmsPanelPage() {
 
           smsTemplate:
             smsTemplate.trim(),
+
+          orderSmsEnabled,
+
+          orderSmsTemplate:
+            orderSmsTemplate.trim(),
+
+          reminderEnabled,
+
+          reminderDays:
+            Math.min(
+              365,
+              Math.max(
+                1,
+                Math.round(
+                  Number(reminderDays) || 7,
+                ),
+              ),
+            ),
         })
 
-      setHasSavedPassword(
-        response.settings
-          .hasPassword,
+      applySettings(
+        response.settings,
       )
 
       setEskizPassword('')
@@ -499,7 +678,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'success',
         title:
-          'SMS sozlamalari saqlandi',
+          'СМС созламалари сақланди',
       })
 
       setSettingsOpen(
@@ -522,7 +701,7 @@ export default function SmsPanelPage() {
         title:
           error instanceof Error
             ? error.message
-            : 'SMS sozlamalarini saqlashda xatolik',
+            : 'СМС созламаларини сақлашда хатолик',
       })
     } finally {
       setSettingsSaving(
@@ -588,21 +767,8 @@ export default function SmsPanelPage() {
           return
         }
 
-        setEskizLogin(
-          response.settings
-            .eskizLogin ?? '',
-        )
-
-        setHasSavedPassword(
-          Boolean(
-            response.settings
-              .hasPassword,
-          ),
-        )
-
-        setSmsTemplate(
-          response.settings
-            .smsTemplate ?? '',
+        applySettings(
+          response.settings,
         )
 
         if (
@@ -669,7 +835,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'Kamida bitta mijozni tanlang',
+          'Камида битта мижозни танланг',
       })
 
       return
@@ -680,8 +846,9 @@ export default function SmsPanelPage() {
     ) {
       addToast({
         type: 'warning',
-        title:
-          'Avval Eskiz akkauntini sozlang',
+        title: isAndroid
+          ? 'Аввал телефон манзили, логин ва паролини созланг'
+          : 'Аввал Эскиз аккаунтини созланг',
       })
 
       setSettingsOpen(
@@ -697,7 +864,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'SMS matni kiritilmagan',
+          'СМС матни киритилмаган',
       })
 
       return
@@ -745,7 +912,7 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          'Yaroqli telefon raqamlari topilmadi',
+          'Яроқли телефон рақамлари топилмади',
       })
 
       return
@@ -757,21 +924,27 @@ export default function SmsPanelPage() {
       addToast({
         type: 'warning',
         title:
-          `${skipped} ta mijozda telefon raqami noto'g'ri`,
+          `${skipped} та мижозда телефон рақами нотўғри`,
       })
     }
 
     setSending(true)
 
     try {
-      await sendSmsMessages(
-        messages,
-      )
+      const response =
+        await sendSmsMessages(
+          messages,
+        )
 
       addToast({
-        type: 'success',
+        type:
+          (response.failed ?? 0) > 0
+            ? 'warning'
+            : 'success',
         title:
-          `${messages.length} ta SMS yuborildi`,
+          isAndroid && response.message
+            ? response.message
+            : `${messages.length} та СМС юборилди`,
       })
 
       setSelectedIds(
@@ -790,7 +963,7 @@ export default function SmsPanelPage() {
         title:
           error instanceof Error
             ? error.message
-            : 'SMS yuborishda xatolik',
+            : 'СМС юборишда хатолик',
       })
     } finally {
       setSending(false)
@@ -809,8 +982,8 @@ export default function SmsPanelPage() {
         {/* ================================================== */}
 
         <PageHeader
-          title="SMS"
-          description="Mijozlarga SMS xabar yuborish"
+          title="СМС"
+          description="Мижозларга СМС хабар юбориш"
           actions={
             <div className="flex items-center gap-2">
               {hasSavedPassword && (
@@ -829,14 +1002,14 @@ export default function SmsPanelPage() {
                       <CheckCircle2
                         size={13}
                       />
-                      Eskiz ulangan
+                      {providerName} уланган
                     </>
                   ) : (
                     <>
                       <AlertTriangle
                         size={13}
                       />
-                      Eskiz tekshirilmagan
+                      {providerName} текширилмаган
                     </>
                   )}
                 </div>
@@ -849,7 +1022,7 @@ export default function SmsPanelPage() {
                     size={13}
                   />
 
-                  Balans:{' '}
+                  Баланс:{' '}
 
                   <strong>
                     {formatCurrency(
@@ -869,7 +1042,7 @@ export default function SmsPanelPage() {
                   size={15}
                 />
 
-                SMS sozlamalari
+                СМС созламалари
               </Button>
             </div>
           }
@@ -889,7 +1062,7 @@ export default function SmsPanelPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-700">
-                    Qarzdor mijozlar
+                    Қарздор мижозлар
                     {' '}
                     <span className="text-gray-400">
                       ({debtors.length})
@@ -906,8 +1079,8 @@ export default function SmsPanelPage() {
                       className="text-xs text-blue-600 hover:underline"
                     >
                       {allSelected
-                        ? 'Barchasini bekor qilish'
-                        : 'Barchasini tanlash'}
+                        ? 'Барчасини бекор қилиш'
+                        : 'Барчасини танлаш'}
                     </button>
                   )}
                 </div>
@@ -946,8 +1119,8 @@ export default function SmsPanelPage() {
                             }
                           />
                         }
-                        title="Qarzdor mijozlar yo'q"
-                        description="Hozircha SMS yuborish uchun qarzdor mijoz mavjud emas."
+                        title="Қарздор мижозлар йўқ"
+                        description="Ҳозирча СМС юбориш учун қарздор мижоз мавжуд эмас."
                       />
                     )}
 
@@ -1038,7 +1211,7 @@ export default function SmsPanelPage() {
                 </div>
 
                 <p className="text-xs text-gray-500">
-                  Tanlangan:
+                  Танланган:
                   {' '}
                   <strong>
                     {
@@ -1055,7 +1228,7 @@ export default function SmsPanelPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-700">
-                    SMS matni
+                    СМС матни
                   </h3>
 
                   <button
@@ -1065,7 +1238,7 @@ export default function SmsPanelPage() {
                     }
                     className="text-xs text-blue-600 hover:underline"
                   >
-                    O'zgartirish
+                    Ўзгартириш
                   </button>
                 </div>
 
@@ -1076,15 +1249,15 @@ export default function SmsPanelPage() {
                     )
                   ) : (
                     <span className="text-gray-400">
-                      SMS matni
-                      sozlanmagan
+                      СМС матни
+                      созланмаган
                     </span>
                   )}
                 </div>
 
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700">
                   <p className="font-semibold mb-1">
-                    Avtomatik almashtiriladi:
+                    Автоматик алмаштирилади:
                   </p>
 
                   <p>
@@ -1092,8 +1265,8 @@ export default function SmsPanelPage() {
                       {'{name}'}
                     </strong>
                     {' '}
-                    → mijozning
-                    ismi
+                    → мижознинг
+                    исми
                   </p>
 
                   <p>
@@ -1101,8 +1274,8 @@ export default function SmsPanelPage() {
                       {'{duty}'}
                     </strong>
                     {' '}
-                    → mijozning
-                    qarzi
+                    → мижознинг
+                    қарзи
                   </p>
                 </div>
 
@@ -1125,7 +1298,7 @@ export default function SmsPanelPage() {
                     size={15}
                   />
 
-                  SMS yuborish
+                  СМС юбориш
                   {' '}
                   {selectedIds.size >
                     0 &&
@@ -1143,7 +1316,7 @@ export default function SmsPanelPage() {
 
       {settingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-full w-full max-w-xl flex-col rounded-2xl bg-white shadow-2xl">
             {/* ============================================== */}
             {/* MODAL HEADER */}
             {/* ============================================== */}
@@ -1151,12 +1324,12 @@ export default function SmsPanelPage() {
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  SMS sozlamalari
+                  СМС созламалари
                 </h2>
 
                 <p className="mt-0.5 text-xs text-gray-500">
-                  Eskiz akkaunti va SMS
-                  matnini sozlang
+                  Юбориш усули ва СМС
+                  матнини созланг
                 </p>
               </div>
 
@@ -1179,7 +1352,7 @@ export default function SmsPanelPage() {
             {/* MODAL BODY */}
             {/* ============================================== */}
 
-            <div className="space-y-5 p-5">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
               {settingsLoading ? (
                 <div className="space-y-4">
                   <Skeleton className="h-10" />
@@ -1189,16 +1362,95 @@ export default function SmsPanelPage() {
               ) : (
                 <>
                   {/* ======================================== */}
-                  {/* ESKIZ LOGIN */}
+                  {/* PROVIDER */}
                   {/* ======================================== */}
 
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                      Eskiz login
+                      Юбориш усули
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          ['eskiz', 'Эскиз'],
+                          ['android', 'Android телефон'],
+                        ] as Array<[SmsProvider, string]>
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            switchProvider(value)
+                          }
+                          className={cn(
+                            'rounded-lg border px-3 py-2.5 text-sm font-medium transition',
+                            provider === value
+                              ? 'border-blue-600 bg-blue-600 text-white'
+                              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {isAndroid && (
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+                        СМС ўз телефонингиздаги SIM-картадан
+                        юборилади. Телефонда SMSGate иловаси ишлаб
+                        туриши керак: «Локальный сервер» режимида
+                        компьютер билан бир Wi-Fi тармоғида,
+                        «Облачный сервер» режимида эса интернетда.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ======================================== */}
+                  {/* ANDROID ADDRESS */}
+                  {/* ======================================== */}
+
+                  {isAndroid && (
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        Телефон манзили
+                      </label>
+
+                      <input
+                        type="text"
+                        value={androidUrl}
+                        onChange={(event) =>
+                          setAndroidUrl(
+                            event.target.value,
+                          )
+                        }
+                        placeholder="192.168.1.50:8080 ёки api.sms-gate.app:443"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+
+                      <p className="mt-1.5 text-[11px] text-gray-500">
+                        SMSGate иловасидаги сервер манзили («Адрес сервера»)
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ======================================== */}
+                  {/* LOGIN */}
+                  {/* ======================================== */}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                      {isAndroid
+                        ? 'Логин (Username)'
+                        : 'Эскиз логин'}
                     </label>
 
                     <input
-                      type="email"
+                      type={
+                        isAndroid
+                          ? 'text'
+                          : 'email'
+                      }
                       value={
                         eskizLogin
                       }
@@ -1211,7 +1463,11 @@ export default function SmsPanelPage() {
                             .value,
                         )
                       }
-                      placeholder="Eskiz login / email"
+                      placeholder={
+                        isAndroid
+                          ? 'SMSGate иловасидаги Username'
+                          : 'Эскиз логин / электрон почта'
+                      }
                       className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     />
                   </div>
@@ -1222,7 +1478,9 @@ export default function SmsPanelPage() {
 
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                      Eskiz parol
+                      {isAndroid
+                        ? 'Парол (Password)'
+                        : 'Эскиз парол'}
                     </label>
 
                     <div className="relative">
@@ -1246,8 +1504,10 @@ export default function SmsPanelPage() {
                         }
                         placeholder={
                           hasSavedPassword
-                            ? 'Saqlangan parolni o‘zgartirish uchun kiriting'
-                            : 'Eskiz paroli'
+                            ? 'Сақланган паролни ўзгартириш учун киритинг'
+                            : isAndroid
+                              ? 'SMSGate иловасидаги Password'
+                              : 'Эскиз пароли'
                         }
                         className="w-full rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                       />
@@ -1282,8 +1542,8 @@ export default function SmsPanelPage() {
 
                     {hasSavedPassword && (
                       <p className="mt-1.5 text-[11px] text-green-600">
-                        ✓ Eskiz paroli
-                        saqlangan
+                        ✓ {providerName} пароли
+                        сақланган
                       </p>
                     )}
                   </div>
@@ -1295,12 +1555,12 @@ export default function SmsPanelPage() {
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <label className="text-xs font-medium text-gray-700">
-                        SMS matni
+                        СМС матни
                       </label>
 
                       <span className="text-[11px] text-gray-400">
                         {smsTemplate.length}{' '}
-                        belgi
+                        белги
                       </span>
                     </div>
 
@@ -1330,7 +1590,7 @@ Iltimos, to'lovni amalga oshiring.`}
 
                     <div className="mt-2 rounded-lg bg-gray-50 p-3 text-[11px] text-gray-600">
                       <p className="font-semibold text-gray-700">
-                        Placeholderlar:
+                        Ўзгарувчилар:
                       </p>
 
                       <p>
@@ -1338,8 +1598,8 @@ Iltimos, to'lovni amalga oshiring.`}
                           {'{name}'}
                         </code>
                         {' '}
-                        — mijoz
-                        ismi
+                        — мижоз
+                        исми
                       </p>
 
                       <p>
@@ -1347,10 +1607,124 @@ Iltimos, to'lovni amalga oshiring.`}
                           {'{duty}'}
                         </code>
                         {' '}
-                        — qarz
-                        miqdori
+                        — қарз
+                        миқдори
                       </p>
                     </div>
+                  </div>
+
+                  {/* ======================================== */}
+                  {/* AUTO SMS */}
+                  {/* ======================================== */}
+
+                  <div className="space-y-4 rounded-lg border border-gray-100 p-4">
+                    <div className="text-xs font-semibold text-gray-900">
+                      Автоматик СМС
+                    </div>
+
+                    <label className="flex cursor-pointer items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={orderSmsEnabled}
+                        onChange={(event) =>
+                          setOrderSmsEnabled(
+                            event.target.checked,
+                          )
+                        }
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      />
+
+                      <span>
+                        <span className="block text-sm font-medium text-gray-800">
+                          Буюртма яратилганда мижозга СМС юбориш
+                        </span>
+
+                        <span className="block text-[11px] text-gray-500">
+                          Фақат қарзи қолган буюртмалар учун юборилади.
+                        </span>
+                      </span>
+                    </label>
+
+                    {orderSmsEnabled && (
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <label className="text-xs font-medium text-gray-700">
+                            Буюртма СМС матни
+                          </label>
+
+                          <span className="text-[11px] text-gray-400">
+                            {orderSmsTemplate.length}{' '}
+                            белги
+                          </span>
+                        </div>
+
+                        <textarea
+                          value={orderSmsTemplate}
+                          onChange={(event) =>
+                            setOrderSmsTemplate(
+                              event.target.value,
+                            )
+                          }
+                          rows={4}
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        />
+
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+                          <code>{'{name}'}</code> — мижоз исми,{' '}
+                          <code>{'{debt}'}</code> — шу буюртма
+                          бўйича қарз,{' '}
+                          <code>{'{total}'}</code> — мижознинг
+                          умумий қарзи.
+                        </p>
+                      </div>
+                    )}
+
+                    <label className="flex cursor-pointer items-start gap-2.5 border-t border-gray-100 pt-4">
+                      <input
+                        type="checkbox"
+                        checked={reminderEnabled}
+                        onChange={(event) =>
+                          setReminderEnabled(
+                            event.target.checked,
+                          )
+                        }
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      />
+
+                      <span>
+                        <span className="block text-sm font-medium text-gray-800">
+                          Қарздорларга даврий эслатма юбориш
+                        </span>
+
+                        <span className="block text-[11px] text-gray-500">
+                          Юқоридаги «СМС матни» юборилади. Дастур
+                          очиқ турганда, соат 9:00–20:00 оралиғида
+                          ишлайди.
+                        </span>
+                      </span>
+                    </label>
+
+                    {reminderEnabled && (
+                      <div className="flex items-center gap-2 text-sm text-gray-700">
+                        Ҳар
+                        <input
+                          type="number"
+                          min={1}
+                          max={365}
+                          step={1}
+                          value={reminderDays}
+                          onChange={(event) =>
+                            setReminderDays(
+                              Number(
+                                event.target.value,
+                              ) || 0,
+                            )
+                          }
+                          className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-center text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        />
+                        кунда бир марта
+                      </div>
+                    )}
                   </div>
 
                   {/* ======================================== */}
@@ -1378,8 +1752,10 @@ Iltimos, to'lovni amalga oshiring.`}
                     />
 
                     {testingEskiz
-                      ? 'Tekshirilmoqda...'
-                      : 'Eskiz akkauntini tekshirish'}
+                      ? 'Текширилмоқда...'
+                      : isAndroid
+                        ? 'Телефонга уланишни текшириш'
+                        : 'Эскиз аккаунтини текшириш'}
                   </button>
 
                   {eskizConnected && (
@@ -1388,9 +1764,11 @@ Iltimos, to'lovni amalga oshiring.`}
                         size={15}
                       />
 
-                      Eskiz akkaunti
-                      muvaffaqiyatli
-                      ulandi
+                      {isAndroid
+                        ? 'Телефон'
+                        : 'Эскиз аккаунти'}{' '}
+                      муваффақиятли
+                      уланди
                     </div>
                   )}
                 </>
@@ -1413,7 +1791,7 @@ Iltimos, to'lovni amalga oshiring.`}
                   settingsSaving
                 }
               >
-                Bekor qilish
+                Бекор қилиш
               </Button>
 
               <Button
@@ -1432,7 +1810,7 @@ Iltimos, to'lovni amalga oshiring.`}
                   size={15}
                 />
 
-                Saqlash
+                Сақлаш
               </Button>
             </div>
           </div>

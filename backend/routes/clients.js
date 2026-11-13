@@ -14,17 +14,21 @@ router.post(
   "/createClient",
   authMiddleware,
   asyncHandler(async (req, res) => {
-    const { name, phone } = req.body;
+    const { name, phone, description } = req.body;
 
     if (!name || !phone) {
       return res.status(400).json({
-        error: "Name va phone majburiy",
+        error: "Исм ва телефон мажбурий",
       });
     }
 
     const client = await Client.create({
       name,
       phone,
+      description:
+        typeof description === "string" && description.trim()
+          ? description.trim()
+          : null,
     });
 
     return res.status(201).json(client);
@@ -36,20 +40,24 @@ router.put(
   authMiddleware,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { name, phone } = req.body;
+    const { name, phone, description } = req.body;
 
     const client = await Client.findByPk(id);
 
     if (!client) {
       return res.status(404).json({
-        error: "Client not found",
+        error: "Мижоз топилмади",
       });
     }
 
-    await client.update({
-      name,
-      phone,
-    });
+    const changes = { name, phone };
+
+    // Изоҳ юборилмаган бўлса, эскиси сақланиб қолади
+    if (typeof description === "string") {
+      changes.description = description.trim() || null;
+    }
+
+    await client.update(changes);
 
     return res.status(200).json(client);
   })
@@ -65,14 +73,14 @@ router.delete(
 
     if (!client) {
       return res.status(404).json({
-        error: "Client not found",
+        error: "Мижоз топилмади",
       });
     }
 
     await client.destroy();
 
     return res.status(200).json({
-      message: "Client deleted successfully",
+      message: "Мижоз ўчирилди",
     });
   })
 );

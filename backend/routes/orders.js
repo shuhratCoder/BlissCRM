@@ -8,13 +8,7 @@ const {
   Client,
 } = require("../models");
 
-const PrinterSetting = require(
-  "../models/printerSetting"
-);
-
-const {
-  printReceipt,
-} = require("../services/printerService");
+const { sendOrderSms } = require("../services/autoSms");
 
 const authMiddleware = require(
   "../middlewares/authorization"
@@ -73,7 +67,7 @@ router.post(
         transactionFinished = true;
 
         return res.status(404).json({
-          error: "Client not found",
+          error: "Мижоз топилмади",
         });
       }
 
@@ -85,21 +79,12 @@ router.post(
         transactionFinished = true;
 
         return res.status(400).json({
-          error: "Order status noto'g'ri",
+          error: "Буюртма ҳолати нотўғри",
         });
       }
 
       // DEBT VALIDATION
       if (status === "debt") {
-        if (!deadline) {
-          await transaction.rollback();
-          transactionFinished = true;
-
-          return res.status(400).json({
-            error: "Deadline majburiy",
-          });
-        }
-
         if (
           receivedAmountNumber < 0 ||
           receivedAmountNumber > totalAmount
@@ -109,7 +94,7 @@ router.post(
 
           return res.status(400).json({
             error:
-              "Received amount noto'g'ri",
+              "Тўлов суммаси нотўғри",
           });
         }
       }
@@ -131,7 +116,7 @@ router.post(
 
           return res.status(400).json({
             error:
-              "Product ma'lumoti noto'g'ri",
+              "Маҳсулот маълумоти нотўғри",
           });
         }
 
@@ -149,7 +134,7 @@ router.post(
 
           return res.status(404).json({
             error:
-              `Product with ID ${item.productId} not found`,
+              `Маҳсулот топилмади (ID: ${item.productId})`,
           });
         }
 
@@ -162,7 +147,7 @@ router.post(
 
           return res.status(400).json({
             error:
-              `Not enough stock for ${product.name}`,
+              `${product.name} омборда етарли эмас`,
           });
         }
 
@@ -222,16 +207,19 @@ router.post(
           );
         }
 
-        await Deadline.create(
-          {
-            orderId: order.id,
-            deadline,
-            description,
-          },
-          {
-            transaction,
-          }
-        );
+        // Муддат ихтиёрий: белгиланмаган бўлса, ёзув яратилмайди
+        if (deadline) {
+          await Deadline.create(
+            {
+              orderId: order.id,
+              deadline,
+              description,
+            },
+            {
+              transaction,
+            }
+          );
+        }
       }
 
       // FULL PAYMENT
@@ -272,105 +260,14 @@ router.post(
           ],
         });
 
-      // AUTO PRINT
-      let printResult = null;
-
-      try {
-        const printerSettings =
-          await PrinterSetting.findOne();
-
-        if (printerSettings) {
-          const paidAmount = (
-            createdOrder.Payments || []
-          ).reduce(
-            (sum, payment) =>
-              sum +
-              Number(
-                payment.receivedAmount || 0
-              ),
-            0
-          );
-
-          const orderTotal =
-            Number(
-              createdOrder.serviceFee || 0
-            ) +
-            Number(
-              createdOrder.productsPrice || 0
-            );
-
-          const debt = Math.max(
-            0,
-            orderTotal - paidAmount
-          );
-
-          printResult =
-            await printReceipt(
-              printerSettings.toJSON(),
-              {
-                companyName:
-                  printerSettings.companyName ||
-                  "BLISS",
-
-                companyPhone:
-                  printerSettings.companyPhone || "",
-
-                orderId:
-                  createdOrder.id,
-
-                clientName:
-                  createdOrder.Client
-                    ?.name || "-",
-
-                clientPhone:
-                  createdOrder.Client
-                    ?.phone || "-",
-
-                products:
-                  createdOrder.products ||
-                  [],
-
-                serviceFee:
-                  Number(
-                    createdOrder.serviceFee ||
-                      0
-                  ),
-
-                productsPrice:
-                  Number(
-                    createdOrder.productsPrice ||
-                      0
-                  ),
-
-                paidAmount,
-
-                debt,
-
-                deadline:
-                  createdOrder.Deadline
-                    ?.deadline || null,
-
-                date:
-                  createdOrder.createdAt,
-              }
-            );
-        }
-      } catch (printError) {
-        console.error(
-          "AUTO PRINT ERROR:",
-          printError
-        );
-
-        printResult = {
-          success: false,
-          message: printError.message,
-        };
-      }
+      // Қарзли буюртма бўлса ва созламаларда ёқилган бўлса, мижозга СМС.
+      // СМС хатоси буюртмага таъсир қилмайди.
+      const sms = await sendOrderSms(order.id);
 
       return res.status(201).json({
         success: true,
         order: createdOrder,
-        print: printResult,
+        sms,
       });
     } catch (error) {
       if (!transactionFinished) {

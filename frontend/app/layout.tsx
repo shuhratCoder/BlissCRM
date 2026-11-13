@@ -14,7 +14,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: 'BLISS CRM',
-  description: 'CRM boshqaruv tizimi',
+  description: 'CRM бошқарув тизими',
 }
 
 export default function RootLayout({

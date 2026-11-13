@@ -5,7 +5,12 @@
 
 import React from 'react'
 import { Save } from 'lucide-react'
-import { useClients, useRePayment, type RePaymentType } from '@/hooks'
+import {
+  useClients,
+  useRePayment,
+  useRePaymentBulk,
+  type RePaymentType,
+} from '@/hooks'
 import { formatCurrency, formatPhone } from '@/lib/api'
 import { useT } from '@/lib/i18n'
 import { useUIStore } from '@/store'
@@ -40,6 +45,9 @@ function clientDebt(c: Client): number {
   return (c.Orders ?? []).reduce((s, o) => s + orderDebt(o), 0)
 }
 
+// "Барча қарзли буюртмалар" танлови: сумма бир нечта буюртмага тақсимланади
+const ALL_ORDERS = '__all__'
+
 export interface ClientRepayFormProps {
   initialClientId?: string
   onDone?: () => void
@@ -50,6 +58,7 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
   const addToast = useUIStore((s) => s.addToast)
   const { data: clients, isLoading } = useClients()
   const repay = useRePayment()
+  const repayBulk = useRePaymentBulk()
 
   const [clientId, setClientId] = React.useState<string>(initialClientId ?? '')
   const [orderId, setOrderId] = React.useState<string>('')
@@ -100,7 +109,25 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
     return (selectedClient.Orders ?? []).filter((o) => orderDebt(o) > 0)
   }, [selectedClient])
 
-  const orderOptions = React.useMemo(
+  // Қарзли буюртмалар эскисидан янгисига (тақсимот тартиби)
+  const debtOrdersOldestFirst = React.useMemo(
+    () =>
+      [...debtOrders].sort(
+        (a, b) =>
+          (ordinalById.get(a.id) ?? 0) - (ordinalById.get(b.id) ?? 0),
+      ),
+    [debtOrders, ordinalById],
+  )
+
+  // Мижоз танланганда: бир нечта қарзли буюртма бўлса — ҳаммаси,
+  // биттаси бўлса — ўша буюртма олдиндан танланади.
+  React.useEffect(() => {
+    if (!selectedClient || orderId) return
+    if (debtOrders.length > 1) setOrderId(ALL_ORDERS)
+    else if (debtOrders.length === 1) setOrderId(debtOrders[0].id)
+  }, [selectedClient, debtOrders, orderId])
+
+  const singleOrderOptions = React.useMemo(
     () =>
       debtOrders.map((o) => ({
         value: o.id,
@@ -113,19 +140,63 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
     [debtOrders, ordinalById, t],
   )
 
-  const selectedOrder = debtOrders.find((o) => o.id === orderId) ?? null
+  const totalDebtForOptions = selectedClient ? clientDebt(selectedClient) : 0
+
+  const orderOptions = React.useMemo(
+    () =>
+      debtOrders.length > 1
+        ? [
+            {
+              value: ALL_ORDERS,
+              label: t('payments.allOrders'),
+              hint: t('payments.allOrdersHint', {
+                amount: formatCurrency(totalDebtForOptions),
+              }),
+            },
+            ...singleOrderOptions,
+          ]
+        : singleOrderOptions,
+    [debtOrders.length, singleOrderOptions, totalDebtForOptions, t],
+  )
+
+  const isAll = orderId === ALL_ORDERS && debtOrders.length > 0
+  const selectedOrder = isAll
+    ? null
+    : debtOrders.find((o) => o.id === orderId) ?? null
   const orderDebtAmount = selectedOrder ? orderDebt(selectedOrder) : 0
   const totalDebtAmount = selectedClient ? clientDebt(selectedClient) : 0
+
+  // Киритилган сумма буюртмаларга қандай тақсимланиши (эскисидан бошлаб)
+  const allocation = React.useMemo(() => {
+    if (!isAll) return []
+    let left = Math.max(0, amount || 0)
+    return debtOrdersOldestFirst.map((o) => {
+      const debt = orderDebt(o)
+      const part = Math.min(debt, left)
+      left -= part
+      return { id: o.id, ordinal: ordinalById.get(o.id) ?? 0, debt, part }
+    })
+  }, [isAll, amount, debtOrdersOldestFirst, ordinalById])
   const remainingOrderDebt = Math.max(0, orderDebtAmount - (amount || 0))
   const remainingTotalDebt = Math.max(0, totalDebtAmount - (amount || 0))
 
+  // Буюртма танланганда тўлов суммаси унинг қарзи билан тўлдирилади
+  // (ҳаммаси танланса — умумий қарз). Суммани камайтириш мумкин.
+  React.useEffect(() => {
+    if (isAll) setAmount(totalDebtAmount)
+    else if (orderDebtAmount > 0) setAmount(orderDebtAmount)
+    else setAmount(0)
+  }, [orderId, isAll, totalDebtAmount, orderDebtAmount])
+
+  const pending = repay.isPending || repayBulk.isPending
+
   const submitDisabled =
-    !selectedOrder || (amount || 0) <= 0 || repay.isPending
+    (!selectedOrder && !isAll) || (amount || 0) <= 0 || pending
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitError(null)
-    if (!selectedOrder) {
+    if (!selectedOrder && !isAll) {
       setSubmitError(t('val.chooseOrder'))
       return
     }
@@ -133,18 +204,27 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
       setSubmitError(t('val.amountPositive'))
       return
     }
-    if (amount > orderDebtAmount) {
+    if (amount > (isAll ? totalDebtAmount : orderDebtAmount)) {
       setSubmitError(t('val.amountExceedsDebt'))
       return
     }
 
     try {
-      await repay.mutateAsync({
-        orderId: selectedOrder.id,
-        receivedAmount: amount,
-        description: description || '',
-        typeGet: method,
-      })
+      if (isAll && selectedClient) {
+        await repayBulk.mutateAsync({
+          clientId: selectedClient.id,
+          receivedAmount: amount,
+          description: description || '',
+          typeGet: method,
+        })
+      } else if (selectedOrder) {
+        await repay.mutateAsync({
+          orderId: selectedOrder.id,
+          receivedAmount: amount,
+          description: description || '',
+          typeGet: method,
+        })
+      }
       onDone?.()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('errors.generic')
@@ -225,7 +305,47 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
       </div>
 
       <div className="space-y-3">
-        {!selectedOrder && <div aria-hidden className="hidden md:block h-3" />}
+        {!selectedOrder && !isAll && (
+          <div aria-hidden className="hidden md:block h-3" />
+        )}
+        {isAll && (
+          <div className="bg-gray-50/70 border border-gray-100 rounded-lg p-4 space-y-2 text-sm">
+            <Row
+              label={t('payments.totalDebtBefore')}
+              value={formatCurrency(totalDebtAmount)}
+            />
+            <Row
+              label={t('payments.formAmount').replace(' *', '')}
+              value={formatCurrency(amount || 0)}
+              tone="emerald"
+            />
+            <hr className="my-2 border-gray-100" />
+            <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              {t('payments.allocation')}
+            </div>
+            {allocation.map((a) => (
+              <Row
+                key={a.id}
+                label={`#${a.ordinal} · ${formatCurrency(a.debt)}`}
+                value={a.part > 0 ? `− ${formatCurrency(a.part)}` : '—'}
+                tone={a.part > 0 ? 'emerald' : 'gray'}
+              />
+            ))}
+            <p className="text-[11px] text-gray-500">
+              {t('payments.allocationNote')}
+            </p>
+            <hr className="my-2 border-gray-100" />
+            <Row
+              label={t('payments.totalRemainingAfter', { amount: '' }).replace(
+                /:\s*$/,
+                '',
+              )}
+              value={formatCurrency(remainingTotalDebt)}
+              tone={remainingTotalDebt > 0 ? 'red' : 'emerald'}
+              bold
+            />
+          </div>
+        )}
         {selectedOrder && (
           <div className="bg-gray-50/70 border border-gray-100 rounded-lg p-4 space-y-2 text-sm">
             <Row
@@ -264,7 +384,7 @@ export function ClientRepayForm({ initialClientId, onDone }: ClientRepayFormProp
         <Button
           type="submit"
           className="w-full"
-          loading={repay.isPending}
+          loading={pending}
           disabled={submitDisabled}
         >
           <Save size={14} /> {t('payments.submit')}

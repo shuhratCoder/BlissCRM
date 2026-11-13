@@ -6,11 +6,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  Package,
   Users,
   ShoppingCart,
   MessageSquare,
-  Settings,
   ChevronLeft,
   ChevronRight,
   X,
@@ -19,13 +17,19 @@ import {
   Info,
   AlertTriangle,
   LogOut,
+  KeyRound,
+  CloudUpload,
   Menu,
-  Printer,
 } from 'lucide-react'
 import { useUIStore, useAuthStore } from '@/store'
 import { useT } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/ui'
+import { ChangePinModal } from '@/components/forms/ChangePinModal'
+import {
+  CloudBackupModal,
+  RestoreOffer,
+} from '@/components/forms/CloudBackupModal'
 
 // ─── Toasts ──────────────────────────────────────────────────
 
@@ -138,17 +142,14 @@ function Sidebar() {
   const { logout } = useAuthStore()
   const { t } = useT()
   const [logoutOpen, setLogoutOpen] = React.useState(false)
+  const [changePinOpen, setChangePinOpen] = React.useState(false)
+  const [backupOpen, setBackupOpen] = React.useState(false)
 
    const NAV = [
     {
       href: '/dashboard',
       label: t('nav.dashboard'),
       icon: LayoutDashboard,
-    },
-    {
-      href: '/inventory',
-      label: t('nav.inventory'),
-      icon: Package,
     },
     {
       href: '/customers',
@@ -165,16 +166,6 @@ function Sidebar() {
       label: t('nav.sms'),
       icon: MessageSquare,
     },
-    {
-      href: '/settings/backup',
-      label: 'Sozlamalar',
-      icon: Settings,
-    },
-    {
-  href: "/settings/printer",
-  label: "Printer",
-  icon: Printer,
-},
   ]
 
   // On mobile the sidebar is a slide-over; on desktop it's the usual
@@ -260,6 +251,32 @@ function Sidebar() {
         </nav>
 
         <div className="border-t border-gray-100 p-3 space-y-2">
+          <button
+            onClick={() => setBackupOpen(true)}
+            title="Захира нусха"
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors',
+              !sidebarOpen && 'md:justify-center md:px-0',
+            )}
+          >
+            <CloudUpload size={14} className="shrink-0" />
+            <span className={cn(!sidebarOpen && 'md:hidden')}>
+              Захира нусха
+            </span>
+          </button>
+          <button
+            onClick={() => setChangePinOpen(true)}
+            title="ПИН кодни ўзгартириш"
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors',
+              !sidebarOpen && 'md:justify-center md:px-0',
+            )}
+          >
+            <KeyRound size={14} className="shrink-0" />
+            <span className={cn(!sidebarOpen && 'md:hidden')}>
+              ПИН кодни ўзгартириш
+            </span>
+          </button>
           <div className={cn('flex items-center gap-2', !sidebarOpen && 'md:hidden')}>
             <button
               onClick={() => setLogoutOpen(true)}
@@ -306,6 +323,18 @@ function Sidebar() {
           description={t('nav.logoutConfirmDesc')}
           confirmLabel={t('nav.logout')}
         />
+
+        <ChangePinModal
+          open={changePinOpen}
+          onClose={() => setChangePinOpen(false)}
+        />
+
+        <CloudBackupModal
+          open={backupOpen}
+          onClose={() => setBackupOpen(false)}
+        />
+
+        <RestoreOffer />
       </aside>
     </>
   )

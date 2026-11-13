@@ -29,6 +29,33 @@ const LocalUser = sequelize.define("LocalUser", {
     allowNull: false,
   },
 
+  // Дастур охирги марта ишлаган вақт (соатни орқага суришдан ҳимоя)
+  lastSeenAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+
+  // Admin CRM серверига захира нусха юбориш учун калит ва ҳолат
+  backupToken: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+
+  lastBackupAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+
+  lastBackupHash: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+
+  lastBackupError: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+
   licenseId: {
     type: DataTypes.STRING,
     allowNull: false,
@@ -48,7 +75,8 @@ const LocalUser = sequelize.define("LocalUser", {
     type: DataTypes.ENUM(
       "active",
       "expired",
-      "blocked"
+      "blocked",
+      "inactive"
     ),
     allowNull: false,
     defaultValue: "active",

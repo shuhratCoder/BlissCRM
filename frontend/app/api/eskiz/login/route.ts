@@ -31,13 +31,13 @@ export async function POST() {
     })
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'Eskiz unreachable' },
+      { error: e instanceof Error ? e.message : 'Эскиз серверига уланиб бўлмади' },
       { status: 502 },
     )
   }
 
   if (!upstream.ok) {
-    let message = `Eskiz login failed (${upstream.status})`
+    let message = `Эскизга кириш амалга ошмади (${upstream.status})`
     try {
       const body = await upstream.json()
       if (body?.message) message = body.message
@@ -51,7 +51,7 @@ export async function POST() {
   const token = body?.data?.token
   if (!token) {
     return NextResponse.json(
-      { error: 'Eskiz response missing token' },
+      { error: 'Эскиз токен қайтармади' },
       { status: 502 },
     )
   }

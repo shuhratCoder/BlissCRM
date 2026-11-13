@@ -36,7 +36,11 @@
       "backend/**/*",
       "frontend/.next/**/*",
       "frontend/public/**/*",
-      "frontend/package.json"
+      "frontend/package.json",
+      "!backend/.env",
+      "!backend/.env.*",
+      "!backend/.data/**/*",
+      "!backend/.gitignore"
     ],
     "win": {
       "target": [

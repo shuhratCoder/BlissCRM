@@ -284,6 +284,9 @@ export interface LoginResponse {
 
   token?: string
   licenseToken?: string
+
+  // Zaxira nusxani serverga yuborish/tiklash uchun kalit
+  backupToken?: string
 }
 
 
@@ -351,11 +354,16 @@ export interface SetupPinRequest {
     expiresAt: string
     status: 'active' | 'expired' | 'blocked'
   }
+
+  backupToken?: string
 }
 
 export interface SetupPinResponse {
   success: boolean
   message: string
+
+  // Lokal backend bergan session token
+  token?: string
 }
 export interface LocalStatusResponse {
   success: boolean
@@ -393,7 +401,7 @@ export async function getLocalStatus(): Promise<LocalStatusResponse> {
   if (!response.ok) {
     throw new Error(
       result?.message ||
-      'Lokal holatni tekshirishda xatolik',
+      'Локал ҳолатни текширишда хатолик',
     )
   }
 
@@ -448,7 +456,7 @@ export async function loginWithPin(
   if (!response.ok) {
     throw new LicenseCheckError(
       result?.message ||
-        "PIN kod noto‘g‘ri",
+        "ПИН код нотўғри",
 
       {
         code:
@@ -533,7 +541,7 @@ export async function checkLicenseRequest(): Promise<LicenseCheckResponse> {
   if (!response.ok) {
     throw new LicenseCheckError(
       result?.message ||
-        'Litsenziya tekshirilmadi',
+        'Лицензия текширилмади',
       {
         code: result?.code,
         status: response.status,
@@ -565,11 +573,174 @@ export async function setupPinRequest(
   if (!response.ok) {
     throw new Error(
       result?.message ||
-      'PIN saqlashda xatolik',
+      'ПИН сақлашда хатолик',
     )
   }
 
   return result as SetupPinResponse
+}
+
+// ─────────────────────────────────────────────────────────────
+// PIN: UNUTILGANDA TIKLASH / DASTUR ICHIDA O'ZGARTIRISH
+// ─────────────────────────────────────────────────────────────
+
+// PIN unutilganda: dastur birinchi marta o'rnatilgandagi login va parol
+// Admin serverda tekshiriladi, so'ng yangi PIN saqlanadi.
+export async function resetPinRequest(
+  username: string,
+  password: string,
+  pin: string,
+): Promise<PinLoginResponse> {
+  const response = await fetch(
+    `${CRM_BASE}/reset-pin`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        pin,
+      }),
+    },
+  )
+
+  const result = await response
+    .json()
+    .catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(
+      result?.message ||
+      'ПИН кодни тиклашда хатолик',
+    )
+  }
+
+  return result as PinLoginResponse
+}
+
+export async function changePinRequest(
+  currentPin: string,
+  newPin: string,
+): Promise<{ success: boolean; message: string }> {
+  return crmApi.post<{ success: boolean; message: string }>(
+    '/change-pin',
+    {
+      currentPin,
+      newPin,
+    },
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// SERVERDAGI ZAXIRA NUSXA (Admin CRM)
+// ─────────────────────────────────────────────────────────────
+
+export interface CloudBackupVersion {
+  id: string
+  createdAt: string
+  sizeBytes: number
+  clientsCount: number
+  ordersCount: number
+}
+
+export interface CloudBackupStatus {
+  success: boolean
+  linked: boolean
+  lastBackupAt: string | null
+  lastBackupError: string | null
+  local: {
+    clients: number
+    orders: number
+  }
+  server: {
+    exists: boolean
+    latest: CloudBackupVersion | null
+    versions: CloudBackupVersion[]
+  } | null
+  serverError: string | null
+  serverErrorCode?: string | null
+}
+
+export interface CloudBackupResult {
+  success: boolean
+  message: string
+  counts?: {
+    clients: number
+    orders: number
+    payments: number
+  }
+}
+
+export async function getCloudBackupStatus(): Promise<CloudBackupStatus> {
+  return crmApi.get<CloudBackupStatus>(
+    '/cloud-backup/status',
+  )
+}
+
+export async function linkCloudBackup(
+  username: string,
+  password: string,
+): Promise<{ success: boolean; message: string }> {
+  return crmApi.post<{ success: boolean; message: string }>(
+    '/cloud-backup/link',
+    {
+      username,
+      password,
+    },
+  )
+}
+
+export async function uploadCloudBackup(): Promise<CloudBackupResult> {
+  return crmApi.post<CloudBackupResult>(
+    '/cloud-backup/upload',
+    {},
+  )
+}
+
+// Admin paneldan yuklab olingan .blissbak faylidan tiklash
+export async function restoreCloudBackupFromFile(
+  file: File,
+  token: string | null,
+): Promise<CloudBackupResult> {
+  const response = await fetch(
+    `${CRM_BASE}/cloud-backup/restore-file`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : {}),
+      },
+      body: file,
+    },
+  )
+
+  const result = await response
+    .json()
+    .catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(
+      result?.message ||
+      (response.status === 413
+        ? 'Файл ҳажми жуда катта'
+        : 'Файлдан тиклашда хатолик'),
+    )
+  }
+
+  return result as CloudBackupResult
+}
+
+export async function restoreCloudBackup(
+  id?: string,
+): Promise<CloudBackupResult> {
+  return crmApi.post<CloudBackupResult>(
+    '/cloud-backup/restore',
+    id ? { id } : {},
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -908,31 +1079,46 @@ export function safeFormatDateTime(
 // SMS / ESKIZ
 // ============================================================
 
+export type SmsProvider = 'eskiz' | 'android'
+
+// eskizLogin / hasPassword — tanlangan usulning logini va paroli borligi.
+export interface SmsSettingsData {
+  provider?: SmsProvider
+  eskizLogin: string
+  hasPassword: boolean
+  androidUrl?: string
+  logins?: Record<SmsProvider, string>
+  hasPasswords?: Record<SmsProvider, boolean>
+  smsTemplate: string
+  orderSmsEnabled?: boolean
+  orderSmsTemplate?: string
+  reminderEnabled?: boolean
+  reminderDays?: number
+}
+
 export interface SmsSettingsResponse {
   success: boolean
 
-  settings: {
-    eskizLogin: string
-    hasPassword: boolean
-    smsTemplate: string
-  }
+  settings: SmsSettingsData
 }
 
 export interface SaveSmsSettingsRequest {
+  provider?: SmsProvider
+  androidUrl?: string
   eskizLogin: string
   eskizPassword?: string
   smsTemplate: string
+  orderSmsEnabled?: boolean
+  orderSmsTemplate?: string
+  reminderEnabled?: boolean
+  reminderDays?: number
 }
 
 export interface SaveSmsSettingsResponse {
   success: boolean
   message: string
 
-  settings: {
-    eskizLogin: string
-    hasPassword: boolean
-    smsTemplate: string
-  }
+  settings: SmsSettingsData
 }
 
 export interface SmsTestResponse {
@@ -942,7 +1128,8 @@ export interface SmsTestResponse {
 
 export interface SmsBalanceResponse {
   success: boolean
-  balance: number
+  provider?: SmsProvider
+  balance: number | null
 }
 
 export interface SendSmsMessage {
@@ -954,6 +1141,8 @@ export interface SendSmsMessage {
 export interface SendSmsResponse {
   success: boolean
   message: string
+  sent?: number
+  failed?: number
   result?: unknown
 }
 
@@ -987,10 +1176,15 @@ export async function saveSmsSettings(
 export async function testEskiz(
   eskizLogin: string,
   eskizPassword?: string,
+  options?: {
+    provider?: SmsProvider
+    androidUrl?: string
+  },
 ): Promise<SmsTestResponse> {
   return crmApi.post<SmsTestResponse>(
     '/sms/test',
     {
+      ...(options ?? {}),
       eskizLogin,
       ...(eskizPassword
         ? {

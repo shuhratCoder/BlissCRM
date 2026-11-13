@@ -4,23 +4,16 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Edit2, Trash2, Users, Phone, Wallet } from 'lucide-react'
 import { ClientRepayForm } from '@/components/forms/ClientRepayForm'
+import { ClientModal } from '@/components/forms/ClientModal'
 import {
   useClients,
-  useCreateClient,
-  useUpdateClient,
   useDeleteClient,
 } from '@/hooks'
 import { useCustomerFilter } from '@/store'
-import { formatCurrency, formatPhone, localPhoneDigits } from '@/lib/api'
+import { formatCurrency, formatPhone } from '@/lib/api'
 import { useT } from '@/lib/i18n'
-import {
-  buildClientSchema,
-  type ClientFormData,
-} from '@/lib/validations'
 import {
   Button,
   Input,
@@ -285,142 +278,5 @@ export default function CustomersPage() {
         {repayOpen && <ClientRepayForm onDone={() => setRepayOpen(false)} />}
       </Modal>
     </div>
-  )
-}
-
-// ─── Create / Edit modal ─────────────────────────────────────
-function ClientModal({
-  open,
-  onClose,
-  mode,
-  client,
-}: {
-  open: boolean
-  onClose: () => void
-  mode: 'create' | 'edit'
-  client?: Client
-}) {
-  const { t } = useT()
-  const isEdit = mode === 'edit'
-  const title = isEdit
-    ? t('customerForm.editTitle')
-    : t('customerForm.newTitle')
-
-  return (
-    <Modal open={open} onClose={onClose} title={title} size="md">
-      {open && (
-        <ClientFormBody
-          key={client?.id ?? 'new'}
-          mode={mode}
-          client={client}
-          onDone={onClose}
-        />
-      )}
-    </Modal>
-  )
-}
-
-// Build a +998XXXXXXXXX value out of whatever shape the API stores
-// ("934317272", "+998934317272", "998 93 431 72 72", ...).
-function toCanonicalPhone(raw: string | null | undefined): string {
-  const local = localPhoneDigits(raw)
-  return local ? `+998${local}` : '+998'
-}
-
-function ClientFormBody({
-  mode,
-  client,
-  onDone,
-}: {
-  mode: 'create' | 'edit'
-  client?: Client
-  onDone: () => void
-}) {
-  const { t } = useT()
-  const isEdit = mode === 'edit'
-
-  const createMutation = useCreateClient()
-  const updateMutation = useUpdateClient()
-
-  const schema = React.useMemo(() => buildClientSchema(t), [t])
-
-  const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors },
-  } = useForm<ClientFormData>({
-    resolver: zodResolver(schema),
-    defaultValues: client
-      ? {
-          name: client.name ?? '',
-          phone: toCanonicalPhone(client.phone),
-          description: client.description ?? '',
-        }
-      : { name: '', phone: '+998', description: '' },
-  })
-
-  const onSubmit = async (data: ClientFormData) => {
-    // Send phone as local 9-digit string to match getClients shape.
-    const phoneLocal = localPhoneDigits(data.phone)
-    if (isEdit) {
-      if (!client) return
-      await updateMutation.mutateAsync({
-        id: client.id,
-        name: data.name,
-        phone: phoneLocal,
-      })
-    } else {
-      await createMutation.mutateAsync({
-        name: data.name,
-        phone: phoneLocal,
-        description: data.description ?? '',
-      })
-    }
-    onDone()
-  }
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <Input
-        label={t('customerForm.fullName')}
-        placeholder={t('customerForm.namePh')}
-        error={errors.name?.message}
-        {...register('name')}
-      />
-      <Controller
-        control={control}
-        name="phone"
-        render={({ field }) => (
-          <PhoneInput
-            label={t('customerForm.phone')}
-            placeholder={t('customerForm.phonePh')}
-            error={errors.phone?.message}
-            value={field.value ?? '+998'}
-            onChange={field.onChange}
-          />
-        )}
-      />
-      {!isEdit && (
-        <Textarea
-          label={t('customerForm.note')}
-          placeholder={t('customerForm.notePh')}
-          rows={3}
-          error={errors.description?.message}
-          {...register('description')}
-        />
-      )}
-      <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="secondary" onClick={onDone}>
-          {t('common.cancel')}
-        </Button>
-        <Button
-          type="submit"
-          loading={createMutation.isPending || updateMutation.isPending}
-        >
-          {isEdit ? t('common.saveChanges') : t('customerForm.submitNew')}
-        </Button>
-      </div>
-    </form>
   )
 }

@@ -75,7 +75,7 @@ router.post(
     if (!backupPath) {
       return res.status(500).json({
         success: false,
-        message: "Backup yaratilmadi",
+        message: "Захира нусха яратилмади",
       });
     }
 
@@ -83,7 +83,7 @@ router.post(
 
     return res.status(201).json({
       success: true,
-      message: "Backup yaratildi",
+      message: "Захира нусха яратилди",
       backup: {
         name: path.basename(backupPath),
         size: stat.size,
@@ -106,7 +106,7 @@ router.post(
     if (!name) {
       return res.status(400).json({
         success: false,
-        message: "Backup nomi majburiy",
+        message: "Захира нусха номи мажбурий",
       });
     }
 
@@ -114,7 +114,7 @@ router.post(
     if (path.basename(name) !== name) {
       return res.status(400).json({
         success: false,
-        message: "Backup nomi noto'g'ri",
+        message: "Захира нусха номи нотўғри",
       });
     }
 
@@ -124,7 +124,7 @@ router.post(
     ) {
       return res.status(400).json({
         success: false,
-        message: "Backup fayli noto'g'ri",
+        message: "Захира нусха файли нотўғри",
       });
     }
 
@@ -141,7 +141,7 @@ router.post(
     if (!fs.existsSync(backupPath)) {
       return res.status(404).json({
         success: false,
-        message: "Backup topilmadi",
+        message: "Захира нусха топилмади",
       });
     }
 
@@ -167,7 +167,7 @@ router.post(
     ) {
       return res.status(400).json({
         success: false,
-        message: "Backup SQLite bazasi emas",
+        message: "Захира нусха SQLite базаси эмас",
       });
     }
 
@@ -179,7 +179,7 @@ router.post(
       return res.status(500).json({
         success: false,
         message:
-          "Emergency backup yaratilmadi. Restore bekor qilindi",
+          "Эҳтиёт нусха яратилмади. Тиклаш бекор қилинди",
       });
     }
 
@@ -193,7 +193,7 @@ router.post(
     res.status(200).json({
   success: true,
   message:
-    "Backup muvaffaqiyatli tiklandi",
+    "Захира нусха муваффақиятли тикланди",
   restartRequired: true,
 });
 

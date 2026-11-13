@@ -121,8 +121,13 @@ export default function CustomerDetailPage() {
       </div>
 
       {client.description && (
-        <div className="bg-amber-50/60 border border-amber-100 rounded-lg p-3 text-xs text-amber-900 whitespace-pre-wrap">
-          {client.description}
+        <div className="bg-amber-50/60 border border-amber-100 rounded-lg p-3 text-sm text-amber-900">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+            {t('customers.colNote')}
+          </div>
+          <div className="whitespace-pre-wrap break-words">
+            {client.description}
+          </div>
         </div>
       )}
 
@@ -197,6 +202,8 @@ export default function CustomerDetailPage() {
                     <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
                       {debt > 0 && deadline ? (
                         formatDate(deadline)
+                      ) : debt > 0 ? (
+                        <span className="text-amber-600">{t('orders.deadlineUnknown')}</span>
                       ) : (
                         <span className="text-gray-400">{t('common.dash')}</span>
                       )}
